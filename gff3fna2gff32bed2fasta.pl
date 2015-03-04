@@ -96,6 +96,7 @@ my $gff3_file=$ARGV[0];  #gff3 input file
 my $genome=$ARGV[1]; #genome sequence directory
 
 my $title = $1 if $gff3_file =~ /[\\\/]?(.+)\.gff3/i;
+my $title2 = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}-.+)-.+\.gff3/i;
 
 
 # Script global functions
@@ -168,85 +169,6 @@ B<Example>:
 #+++    }
 #+++}
 
-
-# Script options
-#################
-
-=pod
-
-=head1 OPTIONS
-
-#--- describes parameters given to the script
-#+++ command line syntax
-#--- requirement of the option and its parameter can be:
-#--- required: name or nature inside <>
-#--- optional: name or nature inside []
-#--- alternative between 2 elements: elements separated by a |
-
-=head2 Parameters
-
-=over 4
-
-=item B<[option_name]> ([option nature]): #+++
-
-[option description]. #+++
-Default: [option default value if one] #+++
-
-=back
-#--- Example:
-#---
-#--- Template.pl [-help | -man]
-#---
-#--- Template.pl [-debug [debug_level]] [-size <width> [height]]
-#---
-#--- =over 4
-#---
-#--- =item B<-help>:
-#---
-#--- Prints a brief help message and exits.
-#---
-#--- =item B<-man>:
-#---
-#--- Prints the manual page and exits.
-#---
-#--- =item B<-debug> (integer):
-#---
-#--- Executes the script in debug mode. If an integer value is specified, it will
-#--- be the debug level. If "-debug" option was used without specifying a debug
-#--- level, level 1 is assumed.
-#--- Default: 0 (not in debug mode).
-#---
-#---=item B<-size> (positive_real) (positive_real):
-#---
-#--- Set the dimensions of the object that will be drawn. The first value is
-#--- the width; the height is the second value if specified, otherwise it will
-#--- assume height and width are equal to the first value.
-#--- Default: width and height are set to 1.
-#---
-#---=back
-
-=cut
-
-# CODE START
-#############
-
-# options processing
-my ($man, $help, $debug) = (0, 0, 0);
-# parse options and print usage if there is a syntax error.
-GetOptions("help|?"   => \$help,
-           "man"      => \$man,
-           "debug"    => \$debug) # a flag
-#           "length=i" => \$length, # numeric
-#           "file=s"   => \$data) # a string
-    or pod2usage(2);
-if ($help) {pod2usage(1);}
-if ($man) {pod2usage(-verbose => 2);}
-
-
-print "Looking for files in $gff3_file\n";
-my @files = $gff3_file;
-print "Found " . @files . " files to process...\n";
-
 sub sortGff3{
 
 	my $gff = new Bio::Tools::GFF(
@@ -279,7 +201,7 @@ sub sortGff3{
 	}
 	$gff->close;
 	
-	my $outfile = "$title"."_sort".".gff3";
+	my $outfile = "$title"."-locus_tag".".gff3";
 	print "Print data to $outfile...\n";
 	
 	my $out = new Bio::Tools::GFF(
@@ -290,13 +212,6 @@ sub sortGff3{
 	my %h_id = ( "ARATH" => "At", "BRADI" => "Bd", "GLYMA" => "Gm", "GOSRA"   => "Gr", "LOTJA"   => "Lj", "MEDTR"   => "Mt", "MUSAC"   => "Ma",
 	"ORYSI"   => "Os", "ORYSJ"   => "Os", "POPTR"   => "Pt", "SOLLC"   => "Sl", "SORBI"   => "Sb", "THECC"   => "Tc", "VITVI"   => "Vv", 
 	"MAIZE"   => "Zm", "MALDO"   => "Md", "MANES"   => "Me", "RICCO"   => "Rc", "SETIT"   => "Si", "SOLTU"   => "St");
-	
-
-	#my $seq_id = $feature->seq_id;
-	#my $gene = $feature->primary_tag =~/gene/i;
-	#my $mrna = $feature->primary_tag =~/mRNA/i;
-	#my $polypeptide = $feature->primary_tag =~/polypeptide/i;
-	#my $other = $feature->primary_tag !~/polypeptide | gene | mRNA/i;
 	
 	foreach my $seq_id (sort {$a cmp $b} keys%gene_refseq){
 		#my $seqobj = $seq{$seq_id}; 
@@ -511,15 +426,26 @@ sub sortGff3{
 
 sub gff3tobed{
 
-	my $sort_file = "$title"."_new".".gff3";
-	my $gffio = Bio::Tools::GFF -> new(-file =>$sort_file , -gff_version => 3);
+	my $new_file = "$title"."-locus_tag".".gff3";
+	my $gffio = Bio::Tools::GFF -> new(-file =>$new_file , -gff_version => 3);
 
 	my $strand=0;
 	my $strand1='-';
-
+	
+	##### Liste les fichiers ayant l'extension .bed 
+	my @list = glob("*.bed"); 
+  
+	### recupere le nombre de fichier 
+	my $numberoffile = scalar(@list);
+	
+	for ( my $v = 0; $v < $numberoffile; $v++ ) {
+		unlink $list[$v]; #supprime les fichiers
+	}
+	
 	while(my $feature = $gffio->next_feature()) {
 		if($feature->primary_tag =~/gene/i){
-			my $file = "output-gene.bed";
+			
+			my $file = "$title-gene.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -537,7 +463,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/mRNA/i){
 
-			my $file = "output-mRNA.bed";
+			my $file = "$title-mRNA.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -555,7 +481,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/five_prime_UTR/i){
 
-			my $file = "output-five_prime_UTR.bed";
+			my $file = "$title-five_prime_UTR.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -573,7 +499,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/three_prime_UTR/i){
 
-			my $file = "output-three_prime_UTR.bed";
+			my $file = "$title-three_prime_UTR.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -591,7 +517,7 @@ sub gff3tobed{
 		
 		if($feature->primary_tag =~/CDS/i){
 
-			my $file = "output-CDS.bed";
+			my $file = "$title-CDS.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -609,7 +535,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/exon/i){
 
-			my $file = "output-exon.bed";
+			my $file = "$title-exon.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -627,7 +553,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/intron/i){
 
-			my $file = "output-intron.bed";
+			my $file = "$title-intron.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -645,7 +571,7 @@ sub gff3tobed{
 	
 		if($feature->primary_tag =~/polypeptide/i){
 
-			my $file = "output-polypeptide.bed";
+			my $file = "$title-polypeptide.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -670,8 +596,88 @@ sub bedtools {
 
 	#bedtools
 	#usage system: system("bedtools getfasta [OPTIONS] -fi <input FASTA> -bed <BED/GFF/VCF> -fo <output FASTA>");
+	#system("bedtools getfasta -s -fi $genome -bed $title-$type.bed -fo $title2-$type.fna");
 
 }
+
+
+# Script options
+#################
+
+=pod
+
+=head1 OPTIONS
+
+#--- describes parameters given to the script
+#+++ command line syntax
+#--- requirement of the option and its parameter can be:
+#--- required: name or nature inside <>
+#--- optional: name or nature inside []
+#--- alternative between 2 elements: elements separated by a |
+
+=head2 Parameters
+
+=over 4
+
+=item B<[option_name]> ([option nature]): #+++
+
+[option description]. #+++
+Default: [option default value if one] #+++
+
+=back
+#--- Example:
+#---
+#--- Template.pl [-help | -man]
+#---
+#--- Template.pl [-debug [debug_level]] [-size <width> [height]]
+#---
+#--- =over 4
+#---
+#--- =item B<-help>:
+#---
+#--- Prints a brief help message and exits.
+#---
+#--- =item B<-man>:
+#---
+#--- Prints the manual page and exits.
+#---
+#--- =item B<-debug> (integer):
+#---
+#--- Executes the script in debug mode. If an integer value is specified, it will
+#--- be the debug level. If "-debug" option was used without specifying a debug
+#--- level, level 1 is assumed.
+#--- Default: 0 (not in debug mode).
+#---
+#---=item B<-size> (positive_real) (positive_real):
+#---
+#--- Set the dimensions of the object that will be drawn. The first value is
+#--- the width; the height is the second value if specified, otherwise it will
+#--- assume height and width are equal to the first value.
+#--- Default: width and height are set to 1.
+#---
+#---=back
+
+=cut
+
+# CODE START
+#############
+
+# options processing
+my ($man, $help, $debug) = (0, 0, 0);
+# parse options and print usage if there is a syntax error.
+GetOptions("help|?"   => \$help,
+           "man"      => \$man,
+           "debug"    => \$debug) # a flag
+#           "length=i" => \$length, # numeric
+#           "file=s"   => \$data) # a string
+    or pod2usage(2);
+if ($help) {pod2usage(1);}
+if ($man) {pod2usage(-verbose => 2);}
+
+
+print "Looking for files in $gff3_file\n";
+my @files = $gff3_file;
+print "Found " . @files . " files to process...\n";
 
 sortGff3();
 
@@ -701,7 +707,7 @@ sortGff3();
 
 =head1 AUTHORS
 
-#+++ Valentin GUIGNON (CIRAD), valentin.guignon@cirad.fr
+Jonathan LORENZO (CIRAD), jonathan.lorenzo@cirad.fr
 
 [author1_name (company), email]#+++
 
