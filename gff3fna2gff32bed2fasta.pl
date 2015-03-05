@@ -96,7 +96,7 @@ my $gff3_file=$ARGV[0];  #gff3 input file
 my $genome=$ARGV[1]; #genome sequence directory
 
 my $title = $1 if $gff3_file =~ /[\\\/]?(.+)\.gff3/i;
-my $title2 = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}-.+)-.+\.gff3/i;
+my $title2 = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}.+)-sequence_feature-genfam\.gff3/i;
 
 
 # Script global functions
@@ -421,7 +421,7 @@ sub sortGff3{
 			}					
 		}
 	}
-	close $out;
+	$out->close();
 }
 
 sub gff3tobed{
@@ -452,12 +452,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -470,12 +472,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -488,12 +492,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -506,12 +512,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 		
@@ -524,12 +532,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -542,12 +552,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -560,12 +572,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{Parent}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	
@@ -578,12 +592,14 @@ sub gff3tobed{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start+1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1,$feature->end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	}
@@ -619,16 +635,18 @@ sub gff3tobed_before{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->start-$begin,$feature->start-$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->start-1-$begin,$feature->start-1-$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start-$begin,$feature->start-$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+			print FILE join("\t",$feature->seq_id,$feature->start-1-$begin,$feature->start-1-$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			close FILE;
 		}
 	}
-	system("bedtools getfasta -s -fi $genome -bed $title-$type-before.bed -fo $title2-$type-before.fna");
+	system("bedtools getfasta -s -fi $genome -bed $title-$type-before.bed -fo $title2-$type-before-genfam.fna");
 }
 
 sub gff3tobed_after{
@@ -659,8 +677,10 @@ sub gff3tobed_after{
 			#change -1 to - and 1 to +
 			if($feature->strand=~/-/){
 				$strand1='-';
+				#print FILE join("\t",$feature->seq_id,$feature->end+1+$begin,$feature->end+1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}else{
 				$strand1='+';
+				#print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 			}
 
 			#gff2bed:
@@ -668,14 +688,14 @@ sub gff3tobed_after{
 			close FILE;
 		}
 	}
-	system("bedtools getfasta -s -fi $genome -bed $title-$type-after.bed -fo $title2-$type-after.fna");
+	system("bedtools getfasta -s -fi $genome -bed $title-$type-after.bed -fo $title2-$type-after-genfam.fna");
 }
 
 sub bedtools {
 
 	#bedtools
 	#usage system: system("bedtools getfasta [OPTIONS] -fi <input FASTA> -bed <BED/GFF/VCF> -fo <output FASTA>");
-	system("bedtools getfasta -s -fi $genome -bed $title-$type.bed -fo $title2-$type.fna");
+	system("bedtools getfasta -s -fi $genome -bed $title-$type.bed -fo $title2-$type-genfam.fna");
 
 }
 
@@ -741,14 +761,13 @@ Default: [option default value if one] #+++
 #############
 
 # options processing
-my ($man, $help, $debug, $bed, $locus);
+my ($man, $help, $debug, $bed);
 
 # parse options and print usage if there is a syntax error.
 GetOptions("help|?"   => \$help,
            "man"      => \$man,
            "debug"    => \$debug, # a flag
            "bed"      => \$bed,
-           "locus"      => \$locus,
            "type|t=s"   => \$type,
            "begin=i" => \$begin,
            "end=i" => \$end)
@@ -763,12 +782,10 @@ print "Looking for files in $gff3_file\n";
 my @files = $gff3_file;
 print "Found " . @files . " files to process...\n";
 
-if (defined($bed)){
-	gff3tobed();
-}
 
-if (defined($locus)){
+if (defined($bed)){
 	sortGff3();
+	gff3tobed();
 }
 
 if (defined($type)){
