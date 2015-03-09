@@ -35,6 +35,7 @@ use Bio::Tools::GFF;
 use List::MoreUtils qw(uniq);
 use Bio::SeqIO;
 use Bio::DB::Fasta;
+use JSON;
 
 # Script global constants
 ##########################
@@ -213,6 +214,8 @@ sub sortGff3{
 	"ORYSI"   => "Os", "ORYSJ"   => "Os", "POPTR"   => "Pt", "SOLLC"   => "Sl", "SORBI"   => "Sb", "THECC"   => "Tc", "VITVI"   => "Vv", 
 	"MAIZE"   => "Zm", "MALDO"   => "Md", "MANES"   => "Me", "RICCO"   => "Rc", "SETIT"   => "Si", "SOLTU"   => "St");
 	
+	my %locus;
+	
 	foreach my $seq_id (sort {$a cmp $b} keys%gene_refseq){
 		#my $seqobj = $seq{$seq_id}; 
 		my $count = 0;
@@ -246,6 +249,16 @@ sub sortGff3{
 				
 				my $L2 = $h_id{$L5};
 				
+				
+				my ($Gene_id) =  $gene->get_tag_values("ID");
+				my $locus_tag = "$L2"."$chr"."$gene_id"."_$L5";
+				#%locus = ($count =>{"gene_id" => $Gene_id, "locus_tag" => $locus_tag},);
+			
+				$locus{$Gene_id} = {   					
+    				locus_tag => $locus_tag,
+    				count => $count,
+				};
+
 				$gene->add_tag_value("locus_tag", "$L2"."$chr"."$gene_id"."_$L5");
 				$out->write_feature($gene);
 				
@@ -274,6 +287,12 @@ sub sortGff3{
 					}elsif($feat_mrna->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 						$chr = $1;
 					}
+					
+					#my $mRNA_id =  $feat_mrna->get_tag_values("ID");
+					#my $locus_tag = "$L2"."$chr"."$mrna_id"."_$L5";
+					#$locus{"mRNA"}{"mRNA_id"}[$count_mrna-1] = $mRNA_id;
+					#$locus{"mRNA"}{"locus_tag"}[$count_mrna-1] = $locus_tag;
+				
 					$feat_mrna->add_tag_value("locus_tag", "$L2"."$chr"."$mrna_id"."_$L5");
 					#my $strand = $feat_mrna->strand;
 					#$feat_mrna->remove_tag("Parent");
@@ -312,6 +331,12 @@ sub sortGff3{
 							}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 								$chr = $1;
 							}
+							
+							#my $Poly_id =  $poly->get_tag_values("ID");
+							#my $locus_tag = "$L2"."$chr"."$poly_id"."_$L5";
+							#$locus{"poly"}{"poly_id"}[$count_mrna-1] = $Poly_id;
+							#$locus{"poly"}{"locus_tag"}[$count_mrna-1] = $locus_tag;
+					
 							$poly->add_tag_value("locus_tag", "$L2"."$chr"."$poly_id"."_$L5");
 							$out->write_feature($poly);
 						}
@@ -417,6 +442,13 @@ sub sortGff3{
 			}					
 		}
 	}
+	my $json = encode_json \%locus;
+	my $file = "$title2-locus_tag.json";
+	unless(open FILE, '>'.$file) {
+		die "Unable to create $file";
+	}
+	print FILE $json;
+	close FILE;
 	$out->close();
 }
 
