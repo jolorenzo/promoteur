@@ -95,9 +95,25 @@ B<variable_name>: ([variable nature]) #+++
 
 my $gff3_file=$ARGV[0];  #gff3 input file
 my $genome=$ARGV[1]; #genome sequence directory
+#my $fna_out_directory=$ARGV[2];
 
-my $title = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}.+-sequence_feature)-genfam\.gff3/i;
-my $title2 = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}.+)-sequence_feature-genfam\.gff3/i;
+my $title;
+my $title2;
+my $title3;
+
+open my $FH_IN, "<", $gff3_file or die "Ouverture impossible du fichier $gff3_file !";
+while (my $ligne = <$FH_IN>) {     # lit le fichier en entrée ligne par ligne
+     if (($ligne !~ /^##/i) && ($ligne =~ /^[A-Z]{5}/i)){     
+         my @mots = split('\t', $ligne);
+         $title = "$1-"."$mots[1]-sequence_feature" if $mots[0] =~ /^([A-Z]{5})/i;
+         $title2 = "$1-"."$mots[1]" if $mots[0] =~ /^([A-Z]{5})/i;
+         $title3 = "$1" if $mots[0] =~ /^([A-Z]{5})/i;
+     }     
+}
+close $FH_IN;
+ 
+#my $title = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}.+-sequence_feature)-genfam\.gff3/i;
+#my $title2 = $1 if $gff3_file =~ /[\\\/]?([A-Z]{5}.+)-sequence_feature-genfam\.gff3/i;
 
 
 # Script global functions
@@ -701,10 +717,22 @@ sub gff3tobed_after{
 
 sub bedtools {
 
+	my @tab_type = ("gene", "polypeptide", "mRNA", "exon", "intron", "five_prime_UTR", "three_prime_UTR", "CDS");
+	
 	#bedtools
 	#usage system: system("bedtools getfasta [OPTIONS] -fi <input FASTA> -bed <BED/GFF/VCF> -fo <output FASTA>");
-	system("bedtools getfasta -s -fi $genome -bed $title-$type-genfam.bed -fo $title2-$type-genfam.fna");
-
+	if ($type =~/all/i){
+		foreach my $VAR (@tab_type){
+			my $fich = "$title-$VAR-genfam.bed";
+			#my $fich_out = "$title2-$VAR-genfam.fna";
+			if (-e $fich){
+				system("bedtools getfasta -s -fi $genome -bed $title-$VAR-genfam.bed -fo $title2-$VAR-genfam.fna");
+			}
+		}
+	}
+	elsif ($type =~/gene|polypeptide|mRNA|exon|intron|five_prime_UTR|three_prime_UTR|CDS/i){
+		system("bedtools getfasta -s -fi $genome -bed $title-$type-genfam.bed -fo $title2-$type-genfam.fna");
+	}
 }
 
 # Script options
