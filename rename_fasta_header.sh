@@ -15,7 +15,7 @@
 #perl -ne 'if($_ =~/^Bd(.+)(\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("BRADI%02d$2\n",$label)} elsif ($_ !~/^Bd.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+\n/) {print OUT $_}else{print $_}' /bank/genfam/BRADI/BRADI.gff3 > /bank/genfam/BRADI/BRADI-JGI1-sequence_feature-genfam.gff3
 #awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/BRADI/BRADI-JGI1-sequence_feature-genfam.gff3 | sort | uniq
 
-#GLYMA (présence de scaffold 4 digits dans génome)
+#GLYMA (présence de scdcaffold 4 digits dans génome)
 #perl -ne 'if($_ =~/^>Gm(\d.+)/){$label=$1;printf (">GLYMA%02d\n",$label)} elsif ($_ =~/^>scaffold_(\d.+)/) {$label=$1;printf (">GLYMA_scaffold%04d\n",$label)} else{print $_}' /bank/glycine_max/Gmax_v1.1_189.fa > /bank/genfam/GLYMA/GLYMA-JGI1-chromosome-genfam.fna
 #grep '>' /bank/genfam/GLYMA/GLYMA-JGI1-chromosome-genfam.fna
 #perl -ne 'if($_ =~/^Gm(.+)(\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("GLYMA%02d$2\n",$label)} elsif ($_ =~/^scaffold_(.+)(\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/) {$label=$1;printf ("GLYMA_scaffold%04d$2\n",$label)}else{print $_}' /bank/genfam/GLYMA/GLYMA.gff3 > /bank/genfam/GLYMA/GLYMA-JGI1-sequence_feature-genfam.gff3
@@ -87,7 +87,7 @@
 #perl -ne 'if($_ =~/^chr(.+)(\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("VITVI%02d$2\n",$label)} else{print $_}' /bank/genfam/VITVI/VITVI.gff3 > /bank/genfam/VITVI/VITVI-GENOSCOPE1-sequence_feature-genfam.gff3
 #awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/VITVI/VITVI-GENOSCOPE1-sequence_feature-genfam.gff3 | sort | uniq
 
-# MAIZE
+# MAIZE (-)
 perl -ne 'if($_ =~/^>Zm(.+)/){$label=$1;printf (">MAIZE%02d\n",$label)} else{print $_}' /bank/zea_maize/MGDB_pseudochromosome > /bank/genfam/MAIZE/MAIZE-MGDB5b60-chromosome-genfam.fna
 grep '>' /bank/genfam/MAIZE/MAIZE-MGDB5b60-chromosome-genfam.fna
 perl -ne 'if($_ =~/^(\d+)(\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("MAIZE%02d$2\n",$label)} elsif ($_ !~/^\d+\t.+\t.+\t.+\t.+\t.+\t.+\t.+\t.+\n/) {print OUT $_}else{print $_}' /bank/genfam/MAIZE/MAIZE.gff3 > /bank/genfam/MAIZE/MAIZE-MGDB5b60-sequence_feature-genfam.gff3
