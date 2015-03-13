@@ -653,23 +653,82 @@ sub gff3tobed_before{
 		unlink $list[$v]; #supprime les fichiers
 	}
 	
+	
+	my @t = ();
+	my $i = 0;
+	while ( my $feature = $gffio->next_feature() ) {
+		if($feature->primary_tag =~/gene/i){
+			$i++;
+			$t[$i] = $feature;
+		}
+	}
+	
+	my $j = 0;
 	while(my $feature = $gffio->next_feature()) {
+		$j++;
 		if($feature->primary_tag =~/$type/i){
+			if(($t[$j]->end == $feature->end) && ($feature->start-2+$begin > 0)){
+				my $file = "$title-$type"."_before-genfam.bed";
+				unless(open FILE, '>>'.$file) {
+					die "Unable to create $file";
+				}
+				#change -1 to - and 1 to +
+				if($feature->strand=~/-/){
+					$strand1='-';
+				}else{
+					$strand1='+';
+				}
+				print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+				close FILE;
+			}
+			elsif(($t[$j]->end == $feature->end) && ($feature->start-2+$begin < 0)){
+				my $file = "$title-$type"."_before-genfam.bed";
+				unless(open FILE, '>>'.$file) {
+					die "Unable to create $file";
+				}
+				#change -1 to - and 1 to +
+				if($feature->strand=~/-/){
+					$strand1='-';
+				}else{
+					$strand1='+';
+				}
+				print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+				close FILE;
+			}
+			elsif($t[$j]->end > $feature->start-1+$begin ){			
 			
-			my $file = "$title-$type"."_before-genfam.bed";
-			unless(open FILE, '>>'.$file) {
-				die "Unable to create $file";
-			}
-			#change -1 to - and 1 to +
-			if($feature->strand=~/-/){
-				$strand1='-';
-			}else{
-				$strand1='+';
-			}
+				my $file = "$title-$type"."_before-genfam.bed";
+				unless(open FILE, '>>'.$file) {
+					die "Unable to create $file";
+				}
+				#change -1 to - and 1 to +
+				if($feature->strand=~/-/){
+					$strand1='-';
+				}else{
+					$strand1='+';
+				}
 
-			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-			close FILE;
+				#gff2bed:
+				print FILE join("\t",$feature->seq_id,$t[$j]->end,$feature->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+				close FILE;
+			}
+			else{
+				
+				my $file = "$title-$type"."_before-genfam.bed";
+				unless(open FILE, '>>'.$file) {
+					die "Unable to create $file";
+				}
+				#change -1 to - and 1 to +
+				if($feature->strand=~/-/){
+					$strand1='-';
+				}else{
+					$strand1='+';
+				}
+
+				#gff2bed:
+				print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+				close FILE;
+			}
 		}
 	}
 	system("bedtools getfasta -s -fi $genome -bed $title-$type"."_before-genfam.bed -fo $title2-$type"."_before-genfam.fna");
