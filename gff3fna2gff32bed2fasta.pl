@@ -36,6 +36,10 @@ use List::MoreUtils qw(uniq);
 use Bio::SeqIO;
 use Bio::DB::Fasta;
 use JSON;
+use Statistics::Descriptive;
+use Bio::DB::SeqFeature;
+use Env qw(HOME);
+use Data::Dumper;
 
 # Script global constants
 ##########################
@@ -185,6 +189,7 @@ B<Example>:
 #+++        confess "usage: subName();"; #+++
 #+++    }
 #+++}
+
 my ($type, $begin, $end, $bed);
 sub sortGff3{
 
@@ -194,27 +199,27 @@ sub sortGff3{
 	);
 	
 	my $cpt = 0;
-	my ($id, %feature, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %cds, %seq, $seq_gene, $seq_cds, $product, $seq_pep);
+	my (%feature, $id, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %cds, %seq, $seq_gene, $seq_cds, $product, $seq_pep);
 	
 	while(my $feature = $gff->next_feature) {
 		if ($feature->primary_tag() eq "gene") {
-			($id) = $feature->get_tag_values("ID");	
-			$feature{$id} = $feature;
 			$cpt++;
+			($id) = $feature->get_tag_values("ID");	
+			$feature{$id} = $feature;			
 			push @{$gene_refseq{$feature->seq_id}} , $feature;
 		}
 		elsif ($feature->primary_tag eq "mRNA") {
-			($mrna_id) = $feature->get_tag_values("ID"); 
+			($mrna_id) = $feature->get_tag_values("ID");
 			$mrna{$id}{$mrna_id} = $feature;
-			#push @{$mrna_refseq{$feature->seq_id}} , $feature;
 		}
 		elsif ($feature->primary_tag eq "polypeptide") { 
+			$mrna_id = $feature->get_tag_values("Derives_from"); 
 			push @{$polypeptide{$mrna_id}}, $feature;
-			my ($id) = $feature->get_tag_values("Derives_from"); 
 		}
 		elsif ($feature->primary_tag !~/polypeptide | gene | mRNA/i) { 	
+			$mrna_id = $feature->get_tag_values("Parent"); 
 			push @{$other{$mrna_id}}, $feature;
-		}
+		}		
 	}
 	$gff->close;
 	
@@ -222,8 +227,8 @@ sub sortGff3{
 	print "Print data to $outfile...\n";
 	
 	my $out = new Bio::Tools::GFF(
-	-file => ">$outfile",
-	-gff_version => 3
+		-file => ">$outfile",
+		-gff_version => 3
 	);
 	
 	my %h_id = ( "ARATH" => "At", "BRADI" => "Bd", "GLYMA" => "Gm", "GOSRA"   => "Gr", "LOTJA"   => "Lj", "MEDTR"   => "Mt", "MUSAC"   => "Ma",
@@ -231,232 +236,228 @@ sub sortGff3{
 	"MAIZE"   => "Zm", "MALDO"   => "Md", "MANES"   => "Me", "RICCO"   => "Rc", "SETIT"   => "Si", "SOLTU"   => "St");
 	
 	my %locus;
+	my $source_tag = "manual_curation";
 	
 	foreach my $seq_id (sort {$a cmp $b} keys%gene_refseq){
-		#my $seqobj = $seq{$seq_id}; 
 		my $count = 0;
-		foreach my $gene (sort {$a->{start} <=> $b->{start}} @{$gene_refseq{$seq_id}}) {
-			my ($name) = $gene->get_tag_values("Name");			 	
-			#my $status = $gene->{status};
-			#if (exists $feature{$name} ){
-				#my $gene = $feature{$name}; 	
-				$count++;
-				my $gene_id = sprintf( "_g%05d", $count * 10 );
-				my $first_poly_id = sprintf( "_p%05d", $count * 10 );
-				my $first_mrna_id = sprintf( "_t%05d", $count * 10 );
-				#my $seqobj_gene = $seqobj->trunc($gene->start,$gene->end);
-				#$seqobj_gene->display_id($gene_id);
-				#$seq_gene->write_seq($seqobj_gene); 
-				#$gene->remove_tag("ID");
-				#$gene->remove_tag("Name");
-				#$gene->add_tag_value("ID",$gene_id);
-				#$gene->add_tag_value("Name",$gene_id);
-				#$gene->source_tag($source_tag);
-				#$gene->add_tag_value("old_locus_tag",$name);
-				
-				my ($L5, $chr);
-				if ($gene->seq_id =~ /^([A-Z]{5})(\d+)/i) {
-					$L5 = $1;
-					$chr = $2;
-				} elsif($gene->seq_id =~ /^([A-Z]{5})_scaffold(\d+)/i){
-					$L5 = $1;
-					$chr = $2;
-				}
-				
-				my $L2 = $h_id{$L5};
-				
-				
-				my ($Gene_id) =  $gene->get_tag_values("ID");
-				my $locus_tag = "$L2"."$chr"."$gene_id"."_$L5";
-				#%locus = ($count =>{"gene_id" => $Gene_id, "locus_tag" => $locus_tag},);
-			
-				$locus{$Gene_id} = {   					
-    				locus_tag => $locus_tag,
-    				count => $count,
-				};
+		foreach my $gene (sort {$a->start <=> $b->start} @{$gene_refseq{$seq_id}}) {
+			my $name = $gene->get_tag_values("Name");	
+			$count++;
+			my $gene_id = sprintf( "_g%05d", $count * 10 );
+			my $first_poly_id = sprintf( "_p%05d", $count * 10 );
+			my $first_mrna_id = sprintf( "_t%05d", $count * 10 );
+			my $start_gene = $gene->start;
+			my $end_gene = $gene->end;
+		
+			my ($L5, $chr);
+			if ($gene->seq_id =~ /^([A-Z]{5})(\d+)/i) {
+				$L5 = $1;
+				$chr = $2;
+			} elsif($gene->seq_id =~ /^([A-Z]{5})_scaffold(\d+)/i){
+				$L5 = $1;
+				$chr = $2;
+			}
+		
+			my $L2 = $h_id{$L5};
+		
+		
+			my ($Gene_id) =  $gene->get_tag_values("ID");
+			my $locus_tag = $L2$chr$gene_id."_$L5";
+	
+			$locus{$Gene_id} = {   					
+				locus_tag => $locus_tag,
+				count => $count,
+			};
 
-				$gene->add_tag_value("locus_tag", "$L2"."$chr"."$gene_id"."_$L5");
-				$out->write_feature($gene);
-				
-				my $count_mrna = 0;
+			$gene->add_tag_value("locus_tag", $L2$chr$gene_id."_$L5");
+		
+			$out->write_feature($gene);
+		
+			my $count_mrna = 0;
+			if (exists $mrna{$name}){
 				foreach my $mrna (keys %{$mrna{$name}}){
 					$count_mrna++;
 					my $mrna_id = $first_mrna_id ."." . $count_mrna;
 					my $poly_id = $first_poly_id ."." . $count_mrna;
 					my $feat_mrna = $mrna{$name}{$mrna};
-					my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");
+					my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");					
+					my $start_poly = 100000000000000000;
+					my $end_poly   = -1; 
+					my @cds;
+					my @exon;
+					my $protein_id;
+					foreach my $other (@{$other{$old_mrna_id}}){		
+						if ($other->primary_tag() eq "CDS") {
+							($protein_id) = $other->get_tag_values("protein_id") if $other->has_tag("protein_id");
+							$start_poly = $other->start if $other->start < $start_poly;
+							$end_poly   = $other->end if $other->end > $end_poly;
+							push @cds,$other;
+						}			
+						if ($other->primary_tag() eq "exon") { 
+							push @exon,$other;
+						}	
+					}
+					my $strand = $feat_mrna->strand;
 				
-					#$feat_mrna->remove_tag("ID");
-					#$feat_mrna->source_tag($source_tag);
-					#$feat_mrna->remove_tag("Name");
-				
-					#$feat_mrna->add_tag_value("old_locus_tag",$mrna);
-					
 					if ($feat_mrna->seq_id =~ /^([A-Z]{5})\d+/i) {
 						$L5 = $1;
 					} elsif($feat_mrna->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
 						$L5 = $1;
 					}
-				
+		
 					if ($feat_mrna->seq_id =~ /^[A-Z]{5}(\d+)/i){
 						$chr = $1;
 					}elsif($feat_mrna->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 						$chr = $1;
 					}
-					
-					#my $mRNA_id =  $feat_mrna->get_tag_values("ID");
-					#my $locus_tag = "$L2"."$chr"."$mrna_id"."_$L5";
-					#$locus{"mRNA"}{"mRNA_id"}[$count_mrna-1] = $mRNA_id;
-					#$locus{"mRNA"}{"locus_tag"}[$count_mrna-1] = $locus_tag;
-				
-					$feat_mrna->add_tag_value("locus_tag", "$L2"."$chr"."$mrna_id"."_$L5");
-					#my $strand = $feat_mrna->strand;
-					#$feat_mrna->remove_tag("Parent");
-					#$feat_mrna->remove_tag("Note") if $feat_mrna->has_tag("Note");
-					#$feat_mrna->add_tag_value("ID",$mrna_id);
-					#$feat_mrna->add_tag_value("Name",$mrna_id);
-					#$feat_mrna->add_tag_value("Note",$status);
-					#$feat_mrna->add_tag_value("Parent",$gene_id);
+		
+					$feat_mrna->add_tag_value("locus_tag", $L2$chr$mrna_id."_$L5");
 					$out->write_feature($feat_mrna);
-					
 					if (exists $polypeptide{$old_mrna_id}){
 						foreach my $poly (@{$polypeptide{$old_mrna_id}}){
-							#$poly->remove_tag("ID");
-							#$poly->source_tag($source_tag);
-							#$poly->remove_tag("Name");
-							#$poly->remove_tag("Derives_from");
-							#$poly->add_tag_value("ID",$poly_id);
-							#$poly->add_tag_value("Name",$poly_id);
-							#$poly->add_tag_value("Derives_from",$mrna_id);
-							#my ($note) = $poly->has_tag("note") ? $poly->get_tag_values("note") : join(" ~",$gene_id,"Hypothetical protein","unknown_gene","missing_functional_completeness");
-							#my @data = (split(/~ /,$note));
-							#my $first = shift @data;
-							#unshift @data , $gene_id ;
-							#my $new_note = join("~ ",@data); 
-							#$poly->remove_tag("note") if $poly->has_tag("note");
-							#$poly->add_tag_value("note",$new_note);
-							
+													
 							if ($poly->seq_id =~ /^([A-Z]{5})\d+/i) {
 								$L5 = $1;
 							} elsif($poly->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
 								$L5 = $1;
 							}
-				
+		
 							if ($poly->seq_id =~ /^[A-Z]{5}(\d+)/i){
 								$chr = $1;
 							}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 								$chr = $1;
 							}
-							
-							#my $Poly_id =  $poly->get_tag_values("ID");
-							#my $locus_tag = "$L2"."$chr"."$poly_id"."_$L5";
-							#$locus{"poly"}{"poly_id"}[$count_mrna-1] = $Poly_id;
-							#$locus{"poly"}{"locus_tag"}[$count_mrna-1] = $locus_tag;
-					
-							$poly->add_tag_value("locus_tag", "$L2"."$chr"."$poly_id"."_$L5");
+							$poly->add_tag_value("locus_tag", $L2$chr$poly_id."_$L5");
 							$out->write_feature($poly);
 						}
 					}
-					#else {	
-					#	my $start_poly = 100000000000000000;
-					#	my $end_poly   = -1; 
-					#	my @cds;
-					#	foreach my $other (@{$other{$old_mrna_id}}){		
-					#		if ($other->primary_tag() eq "CDS") {
-					#			$start_poly = $other->start if $other->start < $start_poly;
-					#			$end_poly   = $other->end if $other->end > $end_poly;
-					#			push @cds,$other;
-					#		}	
-					#	}	
-					#	unless (@cds){
-					#		#print $name ,"\t", $old_mrna_id,"\n";
-					#	}
-					#	else {
-					#		if ($cds[0]->strand == 1) {
-					#			@cds = sort{$a->start <=> $b->start} @cds;
-					#		}
-					#		else {
-					#			@cds = sort{$b->start <=> $a->start} @cds;
-					#		}
-					#		my $cds;
-					#		foreach my $feature (@cds) {	
-					#			my $seqtrunc_cds = $seqobj->trunc($feature->start,$feature->end);	
-					#			if ($feature->strand == -1) {
-					#				$cds .= $seqtrunc_cds->revcom()->seq;
-					#			}
-					#			else {	
-					#				$cds .= $seqtrunc_cds->seq;
-					#			}
-					#		}
-					#		my $seqobj_cds = Bio::PrimarySeq->new (
-					#			-display_id  => $mrna_id,
-					#			-seq         => $cds ,
-					#			-desc		=> $product
-					#		);   
-					#		if ($cds =~ /^ATG.*/ &&  $cds =~ /.*(TAG|TAA|TGA)$/){
-					#			
-					#			$is_complete++;
-					#		}
-					#		else {
-					#			if ($cds =~ /^ATG.*/){
-					#				$codon_stop++;
-					#			}
-					#			elsif ($cds =~ /.*(TAG|TAA|TGA)$/){
-					#				$codon_start++;
-					#			}
-					#			else {
-					#				$is_incomplete++;
-					#				print $name ,"\t", $old_mrna_id,"\n";
-					#			}
-					#		}
-					#		my $seqobj_pep = $seqobj_cds->translate();
-					#		$seqobj_pep->display_id($poly_id);
-					#		$seq_cds->write_seq($seqobj_cds);
-					#		$seq_pep->write_seq($seqobj_pep);
-					#		my ($product) = $feat_mrna->get_tag_values("Note");	
-					#		my $note = join("~ ",$gene_id,$product,"unknown_gene","missing_functional_completeness");
-					#		my $poly = new Bio::SeqFeature::Generic(
-					#			-seq_id 	=> $seq_id,
-					#			-source_tag => $source_tag,
-					#			-primary_tag => 'polypeptide',
-					#			-start       => $start_poly,
-					#			-end         => $end_poly,
-					#			-strand      => $strand,
-					#			-tag 		 => {
-					#				ID	=> $poly_id,
-					#				Name	=> $poly_id,
-					#				Derives_from => $mrna_id,
-					#				inference => "{refseq}",
-					#				owner  => "musa",
-					#				alternative_splicing	=> "to_fill",
-					#				annotator_comment =>"to_fill"	
-					#			}
-					#		); 
-					#		if ($feat_mrna->has_tag("Dbxref")) {
-					#			my @dbxref = $feat_mrna->get_tag_values("Dbxref");
-					#			foreach my $dbxref (@dbxref) {
-					#				$poly->add_tag_value("Dbxref",$dbxref);
-					#			}
-					#		}	
-					#		$poly->add_tag_value("note",$note);
-					#		$poly->add_tag_value("Ontology_term","PRODUCT:".$product);
-					#		$poly->add_tag_value("Ontology_term" => "CC_functional_completeness:missing_functional_completeness");
-					#		$poly->add_tag_value("Ontology_term" => "CC_evidence_code:ISS");
-					#		$poly->add_tag_value("Ontology_term" => "CC_status:in_progress");
-					#		$poly->add_tag_value("Ontology_term" => "CC_evidence:automatic");
-					#		$poly->add_tag_value("Ontology_term" => "CC_EC_number:no_EC_number");
-					#		$out->write_feature($poly);
-					#	}
-					#}	
-					foreach my $other (@{$other{$old_mrna_id}}){		
-						#$other->remove_tag("Parent");	
-						#$other->source_tag($source_tag);
-						#$other->add_tag_value("Parent",$mrna_id);
-						$out->write_feature($other);	
+					else {
+						my $poly = new Bio::SeqFeature::Generic(
+							-seq_id 	=> $seq_id,
+							-source_tag => $source_tag,
+							-primary_tag => 'polypeptide',
+							-start       => $start_poly,
+							-end         => $end_poly,
+							-strand      => $strand,
+							-tag 		 => {
+								ID	=> $feat_mrna->get_tag_values("ID")."-protein",
+								Name	=> $feat_mrna->get_tag_values("ID"),
+								Derives_from => $feat_mrna->get_tag_values("ID"),
+								inference => "{refseq}"	
+							}
+						); 
+						if ($feat_mrna->has_tag("Dbxref")) {
+							my @dbxref = $feat_mrna->get_tag_values("Dbxref");
+							foreach my $dbxref (@dbxref) {
+								$poly->add_tag_value("Dbxref",$dbxref);
+							}
+						}
+						$out->write_feature($poly);
+					}
+				
+					foreach my $other (@{$other{$old_mrna_id}}){
+						$out->write_feature($other);						
+					}
+				}
+			}
+			else {
+				$count_mrna++;
+				my $strand = $gene->strand;
+				my $mrna = new Bio::SeqFeature::Generic(
+					-seq_id 	=> $seq_id,
+					-source_tag => $source_tag,
+					-primary_tag => 'mRNA',
+					-start       => $start_gene,
+					-end         => $end_gene,
+					-strand      => $strand,
+					-tag 		 => {
+						ID	    => "$Gene_id\.$count_mrna",
+						Name	=> "$Gene_id\.$count_mrna",
+						Parent  => $Gene_id
+					}
+				);							
+			
+				my $mrna_id = $first_mrna_id ."." . $count_mrna;
+				my $poly_id = $first_poly_id ."." . $count_mrna;
+				my $feat_mrna = $mrna;
+				my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");
+				my $start_poly = 100000000000000000;
+				my $end_poly   = -1; 
+				my @cds;
+				my @exon;
+				my $protein_id;
+				foreach my $other (@{$other{$old_mrna_id}}){		
+					if ($other->primary_tag() eq "CDS") {
+						($protein_id) = $other->get_tag_values("protein_id") if $other->has_tag("protein_id");
+						$start_poly = $other->start if $other->start < $start_poly;
+						$end_poly   = $other->end if $other->end > $end_poly;
+						push @cds,$other;
+					}			
+					if ($other->primary_tag() eq "exon") { 
+						push @exon,$other;
 					}	
-				#}
-			}					
-		}
+				}
+			
+				if ($feat_mrna->seq_id =~ /^([A-Z]{5})\d+/i) {
+					$L5 = $1;
+				} elsif($feat_mrna->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
+					$L5 = $1;
+				}
+	
+				if ($feat_mrna->seq_id =~ /^[A-Z]{5}(\d+)/i){
+					$chr = $1;
+				}elsif($feat_mrna->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
+					$chr = $1;
+				}
+	
+				$feat_mrna->add_tag_value("locus_tag", $L2$chr$mrna_id."_$L5");
+				$out->write_feature($feat_mrna);
+				if (exists $polypeptide{$old_mrna_id}){
+					foreach my $poly (@{$polypeptide{$old_mrna_id}}){
+												
+						if ($poly->seq_id =~ /^([A-Z]{5})\d+/i) {
+							$L5 = $1;
+						} elsif($poly->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
+							$L5 = $1;
+						}
+	
+						if ($poly->seq_id =~ /^[A-Z]{5}(\d+)/i){
+							$chr = $1;
+						}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
+							$chr = $1;
+						}
+						$poly->add_tag_value("locus_tag", $L2$chr$poly_id."_$L5");
+						$out->write_feature($poly);
+					}
+				}
+				else {
+					my $poly = new Bio::SeqFeature::Generic(
+						-seq_id 	=> $seq_id,
+						-source_tag => $source_tag,
+						-primary_tag => 'polypeptide',
+						-start       => $start_poly,
+						-end         => $end_poly,
+						-strand      => $strand,
+						-tag 		 => {
+							ID	=> "$Gene_id\.$count_mrna",
+							Name	=> "$Gene_id\.$count_mrna",
+							Derives_from => "$Gene_id\.$count_mrna",
+							inference => "{refseq}"	
+						}
+					); 
+					if ($feat_mrna->has_tag("Dbxref")) {
+						my @dbxref = $feat_mrna->get_tag_values("Dbxref");
+						foreach my $dbxref (@dbxref) {
+							$poly->add_tag_value("Dbxref",$dbxref);
+						}
+					}
+					$out->write_feature($poly);
+				}
+				foreach my $other (@{$other{$old_mrna_id}}){
+					$out->write_feature($other);						
+				}					
+			}
+		}	
 	}
 	my $json = encode_json \%locus;
 	my $file = "$title2-locus_tag.json";
@@ -667,67 +668,69 @@ sub gff3tobed_before{
 	while(my $feature = $gffio->next_feature()) {
 		$j++;
 		if($feature->primary_tag =~/$type/i){
-			if(($t[$j]->end == $feature->end) && ($feature->start-2+$begin > 0)){
-				my $file = "$title-$type"."_before-genfam.bed";
-				unless(open FILE, '>>'.$file) {
-					die "Unable to create $file";
+			if ($t[$j]->strand == $feature->strand){
+				if(($t[$j]->end == $feature->end) && ($feature->start-2+$begin > 0)){
+					my $file = "$title-$type"."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+					print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
 				}
-				#change -1 to - and 1 to +
-				if($feature->strand=~/-/){
-					$strand1='-';
-				}else{
-					$strand1='+';
+				elsif(($t[$j]->end == $feature->end) && ($feature->start-2+$begin < 0)){
+					my $file = "$title-$type"."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+					print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
 				}
-				print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-				close FILE;
-			}
-			elsif(($t[$j]->end == $feature->end) && ($feature->start-2+$begin < 0)){
-				my $file = "$title-$type"."_before-genfam.bed";
-				unless(open FILE, '>>'.$file) {
-					die "Unable to create $file";
-				}
-				#change -1 to - and 1 to +
-				if($feature->strand=~/-/){
-					$strand1='-';
-				}else{
-					$strand1='+';
-				}
-				print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-				close FILE;
-			}
-			elsif($t[$j]->end > $feature->start-1+$begin ){			
+				elsif($t[$j]->end > $feature->start-1+$begin ){			
 			
-				my $file = "$title-$type"."_before-genfam.bed";
-				unless(open FILE, '>>'.$file) {
-					die "Unable to create $file";
-				}
-				#change -1 to - and 1 to +
-				if($feature->strand=~/-/){
-					$strand1='-';
-				}else{
-					$strand1='+';
-				}
+					my $file = "$title-$type"."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
 
-				#gff2bed:
-				print FILE join("\t",$feature->seq_id,$t[$j]->end,$feature->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-				close FILE;
-			}
-			else{
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$t[$j]->end,$feature->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				else{
 				
-				my $file = "$title-$type"."_before-genfam.bed";
-				unless(open FILE, '>>'.$file) {
-					die "Unable to create $file";
-				}
-				#change -1 to - and 1 to +
-				if($feature->strand=~/-/){
-					$strand1='-';
-				}else{
-					$strand1='+';
-				}
+					my $file = "$title-$type"."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
 
-				#gff2bed:
-				print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-				close FILE;
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
 			}
 		}
 	}
@@ -791,6 +794,177 @@ sub bedtools {
 	}
 	elsif ($type =~/gene|polypeptide|mRNA|exon|intron|five_prime_UTR|three_prime_UTR|CDS/i){
 		system("bedtools getfasta -s -fi $genome -bed $title-$type-genfam.bed -fo $title2-$type-genfam.fna");
+	}
+}
+
+sub gff3_stat {
+	my $file = "$title"."-locus_tag-genfam".".gff3";
+
+	my $in = new Bio::Tools::GFF(
+		-file => $file,
+		-gff_version => 3
+	);
+	my $gff = new Bio::Tools::GFF(
+		-file => $file,
+		-gff_version => 3
+	);
+	my (%stats, %mrna, %cds, %three, %five, %exon);
+	my %chr_length;
+	while(my $feature = $in->next_feature ){
+		$chr_length{$feature->seq_id} = $feature->end;
+	}
+	$in->close; 
+	my @ftypes = qw(gene transposable_element_gene mrna te cds exon five_prime_utr three_prime_utr intron intergenic genic);
+	for my $t ( @ftypes ) {
+		$stats{$t} = Statistics::Descriptive::Full->new;
+	}
+	my $id;
+	my $mrna_id;
+	my %gene;
+	my %keep;	
+	while(my $feature = $gff->next_feature) { 
+		if ($feature->primary_tag() eq "mRNA") {
+			($id) = $feature->get_tag_values("Parent");
+			($mrna_id) = $feature->get_tag_values("ID");
+			if (defined $gene{$id}){
+				next;
+			}
+			else {
+				$gene{$id} = 1;
+				$keep{$mrna_id}  = 1;
+				push @{$mrna{$feature->seq_id}{gene}},$feature;
+			}
+		}
+		if ($feature->primary_tag() eq "mRNA_TE") {
+			($id) = $feature->get_tag_values("Parent");
+			($mrna_id) = $feature->get_tag_values("ID");
+			if (defined $gene{$id}){
+				next;
+			}
+			else {
+				$gene{$id} = 1;
+				$keep{$mrna_id}  = 1;
+				push @{$mrna{$feature->seq_id}{transposable_element_gene}},$feature;
+			}
+		}	
+		if ($feature->primary_tag() eq "CDS") {
+			my ($parent) = $feature->get_tag_values("Parent");
+			if (  $keep{$parent}){
+				push @{$cds{$parent}},$feature;
+			}
+		}	
+		if ($feature->primary_tag() eq "three_prime_UTR") {
+			my ($parent) = $feature->get_tag_values("Parent");
+			if (  $keep{$parent}){
+				push @{$three{$parent}},$feature;
+			}
+		}	
+		if ($feature->primary_tag() eq "five_prime_UTR") {
+			my ($parent) = $feature->get_tag_values("Parent");
+			if (  $keep{$parent}){
+				push @{$five{$parent}},$feature;
+			}
+		}	
+		if ($feature->primary_tag() eq "exon") {
+			my ($parent) = $feature->get_tag_values("Parent");
+			if (  $keep{$parent}){
+				push @{$exon{$parent}},$feature;
+			}
+		}	
+	}
+	$gff->close;
+	open(OUT,">intergenic.txt");
+	my $genome = 0;
+	my $mrna_sum = 0;
+	my $te_sum  = 0;
+
+	print join("\t","Chr","Length (bp)","Num Gene","Num TE"),"\n";
+	foreach my $seq_id (sort {$a cmp $b} keys %chr_length){
+		my $length 	= $chr_length{$seq_id};
+		my @mrna 	= sort {$a->start <=> $b->start} @{$mrna{$seq_id}{gene}};
+		my @mrna_te = sort {$a->start <=> $b->start} @{$mrna{$seq_id}{transposable_element_gene}};
+		$genome	  += $length;
+		$mrna_sum += scalar(@mrna);
+		$te_sum   += scalar(@mrna_te);
+		my @gene;
+		push @gene , @mrna,@mrna_te; 
+		print join("\t",$seq_id,$chr_length{$seq_id},scalar(@mrna),scalar(@mrna_te),scalar(@gene)),"\n";
+		@gene = sort {$a->start <=> $b->start} @gene;
+		my $total = 0; 
+		my $lastfeature;
+		my $cpt = 0;
+		my $genic;
+		my $intergenic;
+		foreach my $feature (@gene) {
+			$cpt++;
+			my ($mrna_id) = $feature->get_tag_values("Name");
+			foreach my $feature_cds (sort{$a->start <=> $b->start} @{$cds{$mrna_id}}) {
+				my $cds_length = abs($feature_cds->start - $feature_cds->end);
+				$stats{'cds'}->add_data($cds_length); 
+				$total++;
+			}
+			foreach my $feature_five (sort{$a->start <=> $b->start} @{$five{$mrna_id}}) {
+				my $length = abs($feature_five->start - $feature_five->end);
+				$stats{'five_prime_utr'}->add_data($length); 
+				$total++;
+			}	
+			foreach my $feature_three (sort{$a->start <=> $b->start} @{$three{$mrna_id}}) {
+				my $length = abs($feature_three->start - $feature_three->end);
+				$stats{'three_prime_utr'}->add_data($length); 
+				$total++;
+			}	
+			my $lastexon;
+			for my $exon ( sort { $a->start  <=>   $b->start  }  @{$exon{$mrna_id}} ) {
+				my $exonlen = abs($exon->start - $exon->end);
+				$stats{'exon'}->add_data($exonlen);
+				if( $lastexon ) {
+					my $intronlen = abs($exon->start - ($lastexon->end)); 
+					$stats{'intron'}->add_data($intronlen);
+				}
+				$lastexon = $exon;
+			}
+			if ($lastfeature) {
+				$intergenic = $feature->start - $lastfeature->end;
+				if ($intergenic > 0) {
+					$stats{'intergenic'}->add_data($intergenic);  
+					print OUT join("\t",$cpt,"Inter",$seq_id,$lastfeature->end,$feature->start,$intergenic),"\n";  
+				} 
+				$genic = abs($feature->start - $feature->end);
+				if ($feature->primary_tag() eq "mRNA") {
+					$stats{'gene'}->add_data($genic); 
+				}
+				else {
+					$stats{'te'}->add_data($genic); 
+				}
+				$stats{'genic'}->add_data($genic);  
+				print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n"; 
+				$lastfeature = $feature;
+			}
+			else {
+				$intergenic = $feature->start;
+				$stats{'intergenic'}->add_data($intergenic);   
+				$genic = abs($feature->start - $feature->end);
+				print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n";
+				$stats{'genic'}->add_data($genic);  
+				if ($feature->primary_tag() eq "mRNA") {
+					$stats{'gene'}->add_data($genic); 
+				}
+				else {
+					$stats{'te'}->add_data($genic); 
+				}
+				$lastfeature = $feature;
+			}
+		}
+		$intergenic = abs($length - $gene[-1]->end ) ;
+		$stats{'intergenic'}->add_data($intergenic);  
+		print OUT join("\t",$cpt,"Intergenic",$seq_id,$gene[-1]->end +1,$length, $mrna_id),"\n\n";
+ 
+	}
+	print join("\t","All",$genome,$mrna_sum,$te_sum),"\n";
+	for my $t ( qw (gene te intron exon cds five_prime_utr three_prime_utr intergenic genic ) ) {
+		my $percent = 100 * $stats{$t}->sum / $genome;
+		print join("\t",$t, $stats{$t}->count,$stats{$t}->sum,   $stats{$t}->mean,$percent),"\n";
+   
 	}
 }
 
@@ -877,6 +1051,7 @@ print "Looking for files in $gff3_file\n";
 my @files = $gff3_file;
 print "Found " . @files . " files to process...\n";
 
+sortGff3();
 
 if (defined($bed)){
 	sortGff3();
