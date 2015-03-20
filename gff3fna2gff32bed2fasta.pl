@@ -8,7 +8,7 @@
 
 =head1 SYNOPSIS
 
-    qsub -q bioinfo.q -b yes -V -N format1 perl gff3fna2gff32bed2fasta.pl gff3_input_file genome_sequence_directory -bed=all|gene|mRNA|polypeptide|... -type=gene|mRNA|polypeptide|... -begin=0|-x|+x -end=0|-x|+x
+    qsub -q bioinfo.q -b yes -V -N format1 perl gff3fna2gff32bed2fasta.pl <gff3_input_file> <genome_sequence_file> <fna_output_file> -bed=all|gene|mRNA|polypeptide|... -type=gene|mRNA|polypeptide|... -begin=0|-x|+x -end=0|-x|+x
 
 =head1 REQUIRES
 
@@ -99,7 +99,8 @@ B<variable_name>: ([variable nature]) #+++
 
 my $gff3_file=$ARGV[0];  #gff3 input file
 my $genome=$ARGV[1]; #genome sequence directory
-#my $fna_out_directory=$ARGV[2];
+my $fna_output_directory= $1 if $ARGV[2] =~ /(.+\/).+\..+/i;
+my $fna_output_file = $ARGV[2];
 
 my $title;
 my $title2;
@@ -189,7 +190,6 @@ B<Example>:
 #+++        confess "usage: subName();"; #+++
 #+++    }
 #+++}
-
 my ($type, $begin, $end, $bed);
 sub sortGff3{
 
@@ -199,31 +199,59 @@ sub sortGff3{
 	);
 	
 	my $cpt = 0;
-	my (%feature, $id, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %cds, %seq, $seq_gene, $seq_cds, $product, $seq_pep);
+	my (%feature, $id, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %other_plus, %cds);
 	
 	while(my $feature = $gff->next_feature) {
 		if ($feature->primary_tag() eq "gene") {
 			$cpt++;
+			#last if $cpt ==20;
 			($id) = $feature->get_tag_values("ID");	
 			$feature{$id} = $feature;			
 			push @{$gene_refseq{$feature->seq_id}} , $feature;
 		}
 		elsif ($feature->primary_tag eq "mRNA") {
 			($mrna_id) = $feature->get_tag_values("ID");
+			($id)  = $feature->get_tag_values("Parent"); 
 			$mrna{$id}{$mrna_id} = $feature;
 		}
 		elsif ($feature->primary_tag eq "polypeptide") { 
-			$mrna_id = $feature->get_tag_values("Derives_from"); 
+			($mrna_id) = $feature->get_tag_values("Derives_from"); 
 			push @{$polypeptide{$mrna_id}}, $feature;
 		}
-		elsif ($feature->primary_tag !~/polypeptide | gene | mRNA/i) { 	
-			$mrna_id = $feature->get_tag_values("Parent"); 
+		elsif ($feature->primary_tag eq "exon") { 	 
+			($mrna_id) = $feature->get_tag_values("Parent");  
 			push @{$other{$mrna_id}}, $feature;
-		}		
+		}
+		elsif ($feature->primary_tag eq "CDS") { 	 
+			($mrna_id) = $feature->get_tag_values("Parent"); 
+			push @{$other{$mrna_id}}, $feature;
+			push @{$cds{$mrna_id}}, $feature;
+		}
+		elsif ($feature->primary_tag =~/.+_prime_UTR/i) { 	
+			($mrna_id) = $feature->get_tag_values("Parent"); 
+			push @{$other{$mrna_id}}, $feature;
+		}
+		elsif (($feature->primary_tag =~/.+RNA/i) && ($feature->primary_tag !~/^mRNA/i)) { 	
+			($mrna_id) = $feature->get_tag_values("Parent"); 
+			push @{$other{$mrna_id}}, $feature;
+		}			
+		elsif ($feature->has_tag("Parent")){
+			my $seq_id = $feature->seq_id;
+			my ($parent) = $feature->get_tag_values("Parent");
+			push @{$other_plus{$seq_id}{$parent}}, $feature; 
+		}elsif ($feature->has_tag("ID")){
+			my $seq_id = $feature->seq_id;
+			($id) = $feature->get_tag_values("ID");
+			push @{$other_plus{$seq_id}{$id}}, $feature;  
+		}elsif ($feature->has_tag("Name")){
+			my $seq_id = $feature->seq_id;
+			my ($name) = $feature->get_tag_values("Name");
+			push @{$other_plus{$seq_id}{$name}}, $feature;  
+		}	
 	}
 	$gff->close;
 	
-	my $outfile = "$title"."-locus_tag-genfam".".gff3";
+	my $outfile = $fna_output_directory.$title."-locus_tag-genfam.gff3";
 	print "Print data to $outfile...\n";
 	
 	my $out = new Bio::Tools::GFF(
@@ -241,7 +269,7 @@ sub sortGff3{
 	foreach my $seq_id (sort {$a cmp $b} keys%gene_refseq){
 		my $count = 0;
 		foreach my $gene (sort {$a->start <=> $b->start} @{$gene_refseq{$seq_id}}) {
-			my $name = $gene->get_tag_values("Name");	
+			my ($name) = $gene->get_tag_values("ID");	
 			$count++;
 			my $gene_id = sprintf( "_g%05d", $count * 10 );
 			my $first_poly_id = sprintf( "_p%05d", $count * 10 );
@@ -262,20 +290,20 @@ sub sortGff3{
 		
 		
 			my ($Gene_id) =  $gene->get_tag_values("ID");
-			my $locus_tag = $L2$chr$gene_id."_$L5";
+			my $locus_tag = $L2.$chr.$gene_id."_$L5";
 	
 			$locus{$Gene_id} = {   					
 				locus_tag => $locus_tag,
 				count => $count,
 			};
 
-			$gene->add_tag_value("locus_tag", $L2$chr$gene_id."_$L5");
+			$gene->add_tag_value("locus_tag", $L2.$chr.$gene_id."_$L5");
 		
 			$out->write_feature($gene);
-		
+			
 			my $count_mrna = 0;
 			if (exists $mrna{$name}){
-				foreach my $mrna (keys %{$mrna{$name}}){
+				foreach my $mrna (keys%{$mrna{$name}}){
 					$count_mrna++;
 					my $mrna_id = $first_mrna_id ."." . $count_mrna;
 					my $poly_id = $first_poly_id ."." . $count_mrna;
@@ -283,10 +311,12 @@ sub sortGff3{
 					my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");					
 					my $start_poly = 100000000000000000;
 					my $end_poly   = -1; 
+					my $start_poly_exon = 100000000000000000;
+					my $end_poly_exon   = -1; 
 					my @cds;
 					my @exon;
 					my $protein_id;
-					foreach my $other (@{$other{$old_mrna_id}}){		
+					foreach my $other (@{$other{$mrna}}){		
 						if ($other->primary_tag() eq "CDS") {
 							($protein_id) = $other->get_tag_values("protein_id") if $other->has_tag("protein_id");
 							$start_poly = $other->start if $other->start < $start_poly;
@@ -295,6 +325,8 @@ sub sortGff3{
 						}			
 						if ($other->primary_tag() eq "exon") { 
 							push @exon,$other;
+							$start_poly_exon = $other->start if $other->start < $start_poly_exon;
+							$end_poly_exon   = $other->end if $other->end > $end_poly_exon;
 						}	
 					}
 					my $strand = $feat_mrna->strand;
@@ -311,10 +343,16 @@ sub sortGff3{
 						$chr = $1;
 					}
 		
-					$feat_mrna->add_tag_value("locus_tag", $L2$chr$mrna_id."_$L5");
+					$feat_mrna->add_tag_value("locus_tag", $L2.$chr.$mrna_id."_$L5");
 					$out->write_feature($feat_mrna);
-					if (exists $polypeptide{$old_mrna_id}){
-						foreach my $poly (@{$polypeptide{$old_mrna_id}}){
+					
+					unless (@cds ) {
+    					@cds = @exon;
+    					$start_poly = $start_poly_exon;
+    					$end_poly   = $end_poly_exon;
+    				}
+					if (exists $polypeptide{$mrna}){
+						foreach my $poly (@{$polypeptide{$mrna}}){
 													
 							if ($poly->seq_id =~ /^([A-Z]{5})\d+/i) {
 								$L5 = $1;
@@ -327,7 +365,7 @@ sub sortGff3{
 							}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 								$chr = $1;
 							}
-							$poly->add_tag_value("locus_tag", $L2$chr$poly_id."_$L5");
+							$poly->add_tag_value("locus_tag", $L2.$chr.$poly_id."_$L5");
 							$out->write_feature($poly);
 						}
 					}
@@ -342,8 +380,7 @@ sub sortGff3{
 							-tag 		 => {
 								ID	=> $feat_mrna->get_tag_values("ID")."-protein",
 								Name	=> $feat_mrna->get_tag_values("ID"),
-								Derives_from => $feat_mrna->get_tag_values("ID"),
-								inference => "{refseq}"	
+								Derives_from => $feat_mrna->get_tag_values("ID")
 							}
 						); 
 						if ($feat_mrna->has_tag("Dbxref")) {
@@ -352,12 +389,35 @@ sub sortGff3{
 								$poly->add_tag_value("Dbxref",$dbxref);
 							}
 						}
+						if ($poly->seq_id =~ /^([A-Z]{5})\d+/i) {
+							$L5 = $1;
+						} elsif($poly->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
+							$L5 = $1;
+						}
+	
+						if ($poly->seq_id =~ /^[A-Z]{5}(\d+)/i){
+							$chr = $1;
+						}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
+							$chr = $1;
+						}
+						$poly->add_tag_value("locus_tag", $L2.$chr.$poly_id."_$L5");
+							
 						$out->write_feature($poly);
 					}
 				
 					foreach my $other (@{$other{$old_mrna_id}}){
 						$out->write_feature($other);						
 					}
+				}
+			}			
+			#elsif(($feat_other->primary_tag() =~/.+RNA.*/i) && ($feat_other->primary_tag() !~/^mRNA|^miRNA/i)){
+			#	foreach my $other (@{$other{$name}}){
+			#		$out->write_feature($other);						
+			#	}
+			#}
+			elsif(exists $other{$name}){
+				foreach my $other (@{$other{$name}}){
+					$out->write_feature($other);						
 				}
 			}
 			else {
@@ -376,13 +436,15 @@ sub sortGff3{
 						Parent  => $Gene_id
 					}
 				);							
-			
+				
 				my $mrna_id = $first_mrna_id ."." . $count_mrna;
 				my $poly_id = $first_poly_id ."." . $count_mrna;
 				my $feat_mrna = $mrna;
-				my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");
+				my ($old_mrna_id) =  $feat_mrna->get_tag_values("Parent");
 				my $start_poly = 100000000000000000;
 				my $end_poly   = -1; 
+				my $start_poly_exon = 100000000000000000;
+				my $end_poly_exon   = -1; 
 				my @cds;
 				my @exon;
 				my $protein_id;
@@ -395,6 +457,8 @@ sub sortGff3{
 					}			
 					if ($other->primary_tag() eq "exon") { 
 						push @exon,$other;
+						$start_poly_exon = $other->start if $other->start < $start_poly_exon;
+						$end_poly_exon   = $other->end if $other->end > $end_poly_exon;
 					}	
 				}
 			
@@ -410,8 +474,13 @@ sub sortGff3{
 					$chr = $1;
 				}
 	
-				$feat_mrna->add_tag_value("locus_tag", $L2$chr$mrna_id."_$L5");
+				$feat_mrna->add_tag_value("locus_tag", $L2.$chr.$mrna_id."_$L5");
 				$out->write_feature($feat_mrna);
+				unless (@cds ) {
+    				@cds = @exon;
+    				$start_poly = $start_poly_exon;
+    				$end_poly   = $end_poly_exon;
+    			}
 				if (exists $polypeptide{$old_mrna_id}){
 					foreach my $poly (@{$polypeptide{$old_mrna_id}}){
 												
@@ -426,7 +495,7 @@ sub sortGff3{
 						}elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
 							$chr = $1;
 						}
-						$poly->add_tag_value("locus_tag", $L2$chr$poly_id."_$L5");
+						$poly->add_tag_value("locus_tag", $L2.$chr.$poly_id."_$L5");
 						$out->write_feature($poly);
 					}
 				}
@@ -439,10 +508,9 @@ sub sortGff3{
 						-end         => $end_poly,
 						-strand      => $strand,
 						-tag 		 => {
-							ID	=> "$Gene_id\.$count_mrna",
+							ID	=> "$Gene_id\.$count_mrna"."-protein",
 							Name	=> "$Gene_id\.$count_mrna",
 							Derives_from => "$Gene_id\.$count_mrna",
-							inference => "{refseq}"	
 						}
 					); 
 					if ($feat_mrna->has_tag("Dbxref")) {
@@ -451,16 +519,33 @@ sub sortGff3{
 							$poly->add_tag_value("Dbxref",$dbxref);
 						}
 					}
+					if ($poly->seq_id =~ /^([A-Z]{5})\d+/i) {
+						$L5 = $1;
+					} elsif($poly->seq_id =~ /^([A-Z]{5})_scaffold\d+/i){
+						$L5 = $1;
+					}
+	
+					if ($poly->seq_id =~ /^[A-Z]{5}(\d+)/i){
+						$chr = $1;
+					}
+					elsif($poly->seq_id =~ /^[A-Z]{5}_scaffold(\d+)/i){
+						$chr = $1;
+					}
+					$poly->add_tag_value("locus_tag", $L2.$chr.$poly_id."_$L5");
+					
 					$out->write_feature($poly);
 				}
 				foreach my $other (@{$other{$old_mrna_id}}){
 					$out->write_feature($other);						
-				}					
+				}			
 			}
-		}	
+			foreach my $other  (@{$other_plus{$seq_id}{$name}}){
+				$out->write_feature($other);
+			}				
+		}				
 	}
 	my $json = encode_json \%locus;
-	my $file = "$title2-locus_tag.json";
+	my $file = $fna_output_directory.$title2."-locus_tag.json";
 	unless(open FILE, '>'.$file) {
 		die "Unable to create $file";
 	}
@@ -471,7 +556,7 @@ sub sortGff3{
 
 sub gff3tobed{
 
-	my $new_file = "$title"."-locus_tag-genfam".".gff3";
+	my $new_file = $fna_output_directory.$title."-locus_tag-genfam.gff3";
 	my $gffio = Bio::Tools::GFF -> new(-file =>$new_file , -gff_version => 3);
 
 	my $strand=0;
@@ -490,7 +575,7 @@ sub gff3tobed{
 	while(my $feature = $gffio->next_feature()) {
 		if(($feature->primary_tag =~/gene/i) && ($bed =~/gene|all/i)){
 			
-			my $file = "$title-gene-genfam.bed";
+			my $file = $fna_output_directory.$title."-gene-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -508,7 +593,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/mRNA/i) && ($bed =~/mRNA|all/i)){
 
-			my $file = "$title-mRNA-genfam.bed";
+			my $file = $fna_output_directory.$title."-mRNA-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -526,7 +611,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/five_prime_UTR/i) && ($bed =~/five_prime_UTR|all/i)){
 
-			my $file = "$title-five_prime_UTR-genfam.bed";
+			my $file = $fna_output_directory.$title."-five_prime_UTR-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -544,7 +629,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/three_prime_UTR/i) && ($bed =~/three_prime_UTR|all/i)){
 
-			my $file = "$title-three_prime_UTR-genfam.bed";
+			my $file = $fna_output_directory.$title."-three_prime_UTR-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -562,7 +647,7 @@ sub gff3tobed{
 		
 		if(($feature->primary_tag =~/CDS/i) && ($bed =~/CDS|all/i)){
 
-			my $file = "$title-CDS-genfam.bed";
+			my $file = $fna_output_directory.$title."-CDS-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -580,7 +665,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/exon/i) && ($bed =~/exon|all/i)){
 
-			my $file = "$title-exon-genfam.bed";
+			my $file = $fna_output_directory.$title."-exon-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -598,7 +683,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/intron/i) && ($bed =~/intron|all/i)){
 
-			my $file = "$title-intron-genfam.bed";
+			my $file = $fna_output_directory.$title."-intron-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -616,7 +701,7 @@ sub gff3tobed{
 	
 		if(($feature->primary_tag =~/polypeptide/i) && ($bed =~/polypeptide|all/i)){
 
-			my $file = "$title-polypeptide-genfam.bed";
+			my $file = $fna_output_directory.$title."-polypeptide-genfam.bed";
 			unless(open FILE, '>>'.$file) {
 				die "Unable to create $file";
 			}
@@ -638,14 +723,12 @@ sub gff3tobed{
 
 sub gff3tobed_before{
 
-	my $new_file = "$title"."-locus_tag-genfam".".gff3";
-	my $gffio = Bio::Tools::GFF -> new(-file =>$new_file , -gff_version => 3);
-
+	my $new_file = $fna_output_directory.$title."-locus_tag-genfam.gff3";
 	my $strand=0;
 	my $strand1='-';
 	
 	##### Liste les fichiers ayant l'extension .bed 
-	my @list = glob("$title-$type"."_before-genfam.bed"); 
+	my @list = glob($fna_output_directory.$title."-".$type."_before-genfam.bed"); 
   
 	### recupere le nombre de fichier 
 	my $numberoffile = scalar(@list);
@@ -654,23 +737,65 @@ sub gff3tobed_before{
 		unlink $list[$v]; #supprime les fichiers
 	}
 	
+	my $gff = new Bio::Tools::GFF(
+	-file => $new_file,
+	-gff_version => 3
+	);
 	
-	my @t = ();
-	my $i = 0;
-	while ( my $feature = $gffio->next_feature() ) {
-		if($feature->primary_tag =~/gene/i){
-			$i++;
-			$t[$i] = $feature;
+	my $gff1 = new Bio::Tools::GFF(
+	-file => $new_file,
+	-gff_version => 3
+	);
+	
+	my $cpt = 0;
+	my $cpt1 = 0;
+	my $cpt2 = 0;
+	my $cpt3 = 0;
+	my $cpt4 = 0;
+	my $cpt5 = 0;
+	
+	my (%gene, %mRNA, %polypeptide, %CDS, %exon, %five_prime_UTR);
+	
+	while(my $feature = $gff->next_feature) {
+		if (($type =~ /gene/i) && ($feature->primary_tag() eq "gene")) {
+			$cpt++;
+			$gene{$cpt} = $feature;			
+		}
+		elsif (($type =~ /mRNA/i) && ($feature->primary_tag eq "mRNA")) {
+			$cpt1++;
+			$mRNA{$cpt1} = $feature;
+		}
+		elsif (($type =~ /polypeptide/i) && ($feature->primary_tag eq "polypeptide")) { 
+			$cpt2++; 
+			$polypeptide{$cpt2} = $feature;
+		}
+		elsif (($type =~ /exon/i) && ($feature->primary_tag eq "exon")) { 	 
+			$cpt3++;
+			$exon{$cpt3} = $feature;
+		}
+		elsif (($type =~ /CDS/i) && ($feature->primary_tag eq "CDS")) {
+			$cpt4++;
+			$CDS{$cpt4} = $feature;
+		}
+		elsif (($type =~ /five_prime_UTR/i) && ($feature->primary_tag =~/five_prime_UTR/i)) { 	
+			$cpt5++;
+			$five_prime_UTR{$cpt5} = $feature;
 		}
 	}
+	$gff->close;
 	
-	my $j = 0;
-	while(my $feature = $gffio->next_feature()) {
-		$j++;
-		if($feature->primary_tag =~/$type/i){
-			if ($t[$j]->strand == $feature->strand){
-				if(($t[$j]->end == $feature->end) && ($feature->start-2+$begin > 0)){
-					my $file = "$title-$type"."_before-genfam.bed";
+	my $var = join "\n", keys %gene;
+	#print $var;
+	
+	my $j = 0;	
+	
+	while(my $feature = $gff1->next_feature()) {		
+		if ($type =~ /gene/i){
+			if($feature->primary_tag =~/$type/i){
+			$j++;			
+				if((not exists $gene{$j-1}) && ($feature->start+$begin > 0)){
+					#print "1";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
 					unless(open FILE, '>>'.$file) {
 						die "Unable to create $file";
 					}
@@ -680,11 +805,12 @@ sub gff3tobed_before{
 					}else{
 						$strand1='+';
 					}
-					print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 					close FILE;
 				}
-				elsif(($t[$j]->end == $feature->end) && ($feature->start-2+$begin < 0)){
-					my $file = "$title-$type"."_before-genfam.bed";
+				elsif((not exists $gene{$j-1}) && ($feature->start+$begin <= 0)){
+					#print "2";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
 					unless(open FILE, '>>'.$file) {
 						die "Unable to create $file";
 					}
@@ -694,12 +820,12 @@ sub gff3tobed_before{
 					}else{
 						$strand1='+';
 					}
-					print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 					close FILE;
 				}
-				elsif($t[$j]->end > $feature->start-1+$begin ){			
-			
-					my $file = "$title-$type"."_before-genfam.bed";
+				elsif(($gene{$j-1}->start >= $feature->start+$begin) && ($gene{$j-1}->end >= $feature->start)){			
+					#print "3";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
 					unless(open FILE, '>>'.$file) {
 						die "Unable to create $file";
 					}
@@ -711,12 +837,142 @@ sub gff3tobed_before{
 					}
 
 					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$t[$j]->end,$feature->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					print FILE join("\t",$feature->seq_id,$gene{$j-1}->start,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 					close FILE;
 				}
+				elsif(($gene{$j-1}->start < $feature->start+$begin) && ($gene{$j-1}->end >= $feature->start)){			
+					#print "4";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((not exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($feature->start+$begin > 0)){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((not exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($feature->start+$begin <= 0)){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start-$feature->start,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($gene{$j-2}->end < $feature->start+$begin)){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($gene{$j-2}->end >= $feature->start+$begin) ){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$gene{$j-2}->end,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($gene{$j-2}->start < $feature->start+$begin) && ($gene{$j-2}->end > $feature->start)){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->start+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif ((exists $gene{$j-2}) && ($gene{$j-1}->start == $feature->start) && ($gene{$j-2}->end >= $feature->start+$begin) && ($gene{$j-2}->end > $feature->start)){
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$gene{$j-2}->start,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif(($gene{$j-1}->end >= $feature->start+$begin) && ($gene{$j-1}->end < $feature->start)){			
+					#print "5";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$gene{$j-1}->end,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}				
 				else{
-				
-					my $file = "$title-$type"."_before-genfam.bed";
+					#print "6";
+					my $file = $fna_output_directory.$title."-".$type."_before-genfam.bed";
 					unless(open FILE, '>>'.$file) {
 						die "Unable to create $file";
 					}
@@ -728,25 +984,25 @@ sub gff3tobed_before{
 					}
 
 					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->start-2+$begin,$feature->start-1+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
 					close FILE;
-				}
+				}				
 			}
 		}
 	}
-	system("bedtools getfasta -s -fi $genome -bed $title-$type"."_before-genfam.bed -fo $title2-$type"."_before-genfam.fna");
+	$gff1->close();
+	
+	system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."_before-genfam.bed -fo $fna_output_file");
 }
 
 sub gff3tobed_after{
 
-	my $new_file = "$title"."-locus_tag-genfam".".gff3";
-	my $gffio = Bio::Tools::GFF -> new(-file =>$new_file , -gff_version => 3);
-
+	my $new_file = $fna_output_directory.$title."-locus_tag-genfam.gff3";
 	my $strand=0;
 	my $strand1='-';
 	
 	##### Liste les fichiers ayant l'extension .bed 
-	my @list = glob("$title-$type"."_after-genfam.bed"); 
+	my @list = glob($fna_output_directory.$title."-".$type."_after-genfam.bed"); 
   
 	### recupere le nombre de fichier 
 	my $numberoffile = scalar(@list);
@@ -755,65 +1011,235 @@ sub gff3tobed_after{
 		unlink $list[$v]; #supprime les fichiers
 	}
 	
-	while(my $feature = $gffio->next_feature()) {
-		if($feature->primary_tag =~/$type/i){
-			
-			my $file = "$title-$type"."_after-genfam.bed";
-			unless(open FILE, '>>'.$file) {
-				die "Unable to create $file";
-			}
-			#change -1 to - and 1 to +
-			if($feature->strand=~/-/){
-				$strand1='-';
-			}else{
-				$strand1='+';
-			}
-
-			#gff2bed:
-			print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
-			close FILE;
+	my $in = new Bio::SeqIO(
+		-file => $genome,
+		-format => "fasta"
+	);
+	
+	my (%length, $seq_obj);
+	while ($seq_obj = $in->next_seq){  
+  		 $length{$seq_obj->primary_id} = $seq_obj->length();
+	}
+	$in->close;
+	
+	my $gff = new Bio::Tools::GFF(
+	-file => $new_file,
+	-gff_version => 3
+	);
+	
+	my $cpt = 0;
+	my $cpt1 = 0;
+	my $cpt2 = 0;
+	my $cpt3 = 0;
+	my $cpt4 = 0;
+	my $cpt5 = 0;
+	
+	my (%gene, %mRNA, %polypeptide, %CDS, %exon, %five_prime_UTR);
+	
+	while(my $feature = $gff->next_feature) {
+		if (($type =~ /gene/i) && ($feature->primary_tag() eq "gene")) {
+			$cpt++;
+			$gene{$cpt} = $feature;			
+		}
+		elsif (($type =~ /mRNA/i) && ($feature->primary_tag eq "mRNA")) {
+			$cpt1++;
+			$mRNA{$cpt1} = $feature;
+		}
+		elsif (($type =~ /polypeptide/i) && ($feature->primary_tag eq "polypeptide")) { 
+			$cpt2++; 
+			$polypeptide{$cpt2} = $feature;
+		}
+		elsif (($type =~ /exon/i) && ($feature->primary_tag eq "exon")) { 	 
+			$cpt3++;
+			$exon{$cpt3} = $feature;
+		}
+		elsif (($type =~ /CDS/i) && ($feature->primary_tag eq "CDS")) {
+			$cpt4++;
+			$CDS{$cpt4} = $feature;
+		}
+		elsif (($type =~ /five_prime_UTR/i) && ($feature->primary_tag =~/five_prime_UTR/i)) { 	
+			$cpt5++;
+			$five_prime_UTR{$cpt5} = $feature;
 		}
 	}
-	system("bedtools getfasta -s -fi $genome -bed $title-$type"."_after-genfam.bed -fo $title2-$type"."_after-genfam.fna");
+	$gff->close;
+	
+	#my $var = join "\n", keys %gene;
+	#print $var;
+	
+	my $gff1 = new Bio::Tools::GFF(
+	-file => $new_file,
+	-gff_version => 3
+	);
+	
+	my $j = 0;	
+	
+	while(my $feature = $gff1->next_feature()) {		
+		if ($type =~ /gene/i){
+			if($feature->primary_tag =~/$type/i){
+			$j++;
+			print $feature->end;
+				if((not exists $gene{$j+1}) && ($feature->end+$end <= $length{$feature->seq_id})){
+					print "1";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif((not exists $gene{$j+1}) && ($feature->end+$end > $length{$feature->seq_id})){
+					print "2";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$length{$feature->seq_id},$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif(($gene{$j-1}->end > $feature->end+$begin) && ($gene{$j-1}->end > $feature->end)){			
+					print "3";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif(($gene{$j+1}->start <= $feature->end+$end) && ($gene{$j-1}->end <= $feature->end)){			
+					print "4";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$gene{$j+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif(($gene{$j+1}->start > $feature->end+$end) && ($gene{$j-1}->end <= $feature->start)){			
+					print "5";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				elsif(($gene{$j+1}->start > $feature->end) && ($feature->end+$end >= $gene{$j+1}->start)){			
+					print "6";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$gene{$j+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}
+				else{
+					print "7";
+					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
+					unless(open FILE, '>>'.$file) {
+						die "Unable to create $file";
+					}
+					#change -1 to - and 1 to +
+					if($feature->strand=~/-/){
+						$strand1='-';
+					}else{
+						$strand1='+';
+					}
+
+					#gff2bed:
+					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0],".",$strand1)."\n";
+					close FILE;
+				}				
+			}
+		}
+	}
+	$gff1->close();
+	
+	system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."_before-genfam.bed -fo $fna_output_file");
 }
 
 sub bedtools {
 
 	my @tab_type = ("gene", "polypeptide", "mRNA", "exon", "intron", "five_prime_UTR", "three_prime_UTR", "CDS");
-	
 	#bedtools
 	#usage system: system("bedtools getfasta [OPTIONS] -fi <input FASTA> -bed <BED/GFF/VCF> -fo <output FASTA>");
 	if ($type =~/all/i){
 		foreach my $VAR (@tab_type){
-			my $fich = "$title-$VAR-genfam.bed";
+			my $fich = $fna_output_directory.$title."-".$VAR."-genfam.bed";
 			#my $fich_out = "$title2-$VAR-genfam.fna";
 			if (-e $fich){
-				system("bedtools getfasta -s -fi $genome -bed $title-$VAR-genfam.bed -fo $title2-$VAR-genfam.fna");
+				system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$VAR."-genfam.bed -fo $VAR-$fna_output_file");
 			}
 		}
 	}
 	elsif ($type =~/gene|polypeptide|mRNA|exon|intron|five_prime_UTR|three_prime_UTR|CDS/i){
-		system("bedtools getfasta -s -fi $genome -bed $title-$type-genfam.bed -fo $title2-$type-genfam.fna");
+		system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."-genfam.bed -fo $fna_output_file");
 	}
 }
 
 sub gff3_stat {
-	my $file = "$title"."-locus_tag-genfam".".gff3";
-
-	my $in = new Bio::Tools::GFF(
+	my $file = $fna_output_directory.$title."-locus_tag-genfam.gff3";
+	
+	my $gff1 = new Bio::Tools::GFF(
 		-file => $file,
 		-gff_version => 3
 	);
+	
 	my $gff = new Bio::Tools::GFF(
 		-file => $file,
 		-gff_version => 3
 	);
-	my (%stats, %mrna, %cds, %three, %five, %exon);
-	my %chr_length;
-	while(my $feature = $in->next_feature ){
+	my (%stats, %mrna, %cds, %three, %five, %exon, %chr_length, $seq_obj);
+	
+	while(my $feature = $gff1->next_feature ){
 		$chr_length{$feature->seq_id} = $feature->end;
 	}
-	$in->close; 
+	$gff1->close; 
+	
 	my @ftypes = qw(gene transposable_element_gene mrna te cds exon five_prime_utr three_prime_utr intron intergenic genic);
 	for my $t ( @ftypes ) {
 		$stats{$t} = Statistics::Descriptive::Full->new;
@@ -873,7 +1299,7 @@ sub gff3_stat {
 		}	
 	}
 	$gff->close;
-	open(OUT,">intergenic.txt");
+	open(OUT,">".$fna_output_directory."intergenic.txt");
 	my $genome = 0;
 	my $mrna_sum = 0;
 	my $te_sum  = 0;
@@ -882,7 +1308,11 @@ sub gff3_stat {
 	foreach my $seq_id (sort {$a cmp $b} keys %chr_length){
 		my $length 	= $chr_length{$seq_id};
 		my @mrna 	= sort {$a->start <=> $b->start} @{$mrna{$seq_id}{gene}};
-		my @mrna_te = sort {$a->start <=> $b->start} @{$mrna{$seq_id}{transposable_element_gene}};
+		
+		my @mrna_te;
+		if (defined $mrna{$seq_id}{transposable_element_gene}){
+			@mrna_te = sort {$a->start <=> $b->start} @{$mrna{$seq_id}{transposable_element_gene}};
+		}
 		$genome	  += $length;
 		$mrna_sum += scalar(@mrna);
 		$te_sum   += scalar(@mrna_te);
@@ -898,30 +1328,39 @@ sub gff3_stat {
 		foreach my $feature (@gene) {
 			$cpt++;
 			my ($mrna_id) = $feature->get_tag_values("Name");
-			foreach my $feature_cds (sort{$a->start <=> $b->start} @{$cds{$mrna_id}}) {
-				my $cds_length = abs($feature_cds->start - $feature_cds->end);
-				$stats{'cds'}->add_data($cds_length); 
-				$total++;
-			}
-			foreach my $feature_five (sort{$a->start <=> $b->start} @{$five{$mrna_id}}) {
-				my $length = abs($feature_five->start - $feature_five->end);
-				$stats{'five_prime_utr'}->add_data($length); 
-				$total++;
-			}	
-			foreach my $feature_three (sort{$a->start <=> $b->start} @{$three{$mrna_id}}) {
-				my $length = abs($feature_three->start - $feature_three->end);
-				$stats{'three_prime_utr'}->add_data($length); 
-				$total++;
-			}	
-			my $lastexon;
-			for my $exon ( sort { $a->start  <=>   $b->start  }  @{$exon{$mrna_id}} ) {
-				my $exonlen = abs($exon->start - $exon->end);
-				$stats{'exon'}->add_data($exonlen);
-				if( $lastexon ) {
-					my $intronlen = abs($exon->start - ($lastexon->end)); 
-					$stats{'intron'}->add_data($intronlen);
+			if (defined $cds{$mrna_id}){
+				foreach my $feature_cds (sort{$a->start <=> $b->start} @{$cds{$mrna_id}}) {
+					my $cds_length = abs($feature_cds->start - $feature_cds->end);
+					$stats{'cds'}->add_data($cds_length); 
+					$total++;
 				}
-				$lastexon = $exon;
+			}
+			if (defined $five{$mrna_id}){
+				foreach my $feature_five (sort{$a->start <=> $b->start} @{$five{$mrna_id}}) {
+					my $length = abs($feature_five->start - $feature_five->end);
+					$stats{'five_prime_utr'}->add_data($length); 
+					$total++;
+				}
+			}
+			if (defined $three{$mrna_id}){
+				foreach my $feature_three (sort{$a->start <=> $b->start} @{$three{$mrna_id}}) {
+					my $length = abs($feature_three->start - $feature_three->end);
+					$stats{'three_prime_utr'}->add_data($length); 
+					$total++;
+				}
+			}
+			my $lastexon;
+			
+			if (defined $exon{$mrna_id}){
+				for my $exon ( sort { $a->start  <=>   $b->start  }  @{$exon{$mrna_id}} ) {
+					my $exonlen = abs($exon->start - $exon->end);
+					$stats{'exon'}->add_data($exonlen);
+					if( $lastexon ) {
+						my $intronlen = abs($exon->start - ($lastexon->end)); 
+						$stats{'intron'}->add_data($intronlen);
+					}
+					$lastexon = $exon;
+				}
 			}
 			if ($lastfeature) {
 				$intergenic = $feature->start - $lastfeature->end;
@@ -1051,10 +1490,11 @@ print "Looking for files in $gff3_file\n";
 my @files = $gff3_file;
 print "Found " . @files . " files to process...\n";
 
-sortGff3();
+#sortGff3();
 
 if (defined($bed)){
 	sortGff3();
+	gff3_stat();
 	gff3tobed();
 }
 
@@ -1062,10 +1502,10 @@ if (defined($type)){
 	if (($begin == 0) && ($end == 0)){
 		bedtools();
 	}
-	elsif (($begin =~ /\-[1-9]+/) && ($end =~ /\-[1-9]+|0/)){
+	elsif (($begin =~ /^\-[1-9]+/) && ($end =~ /^\-[1-9]+|^0/)){
 		gff3tobed_before();
 	}
-	elsif (($begin =~ /\+[1-9]+|0/) && ($end =~ /\+[1-9]+/)){
+	elsif (($begin =~ /^[1-9]+|^0/) && ($end =~ /^[1-9]+/)){
 		gff3tobed_after();
 	}
 }
