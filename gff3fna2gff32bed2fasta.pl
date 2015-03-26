@@ -487,7 +487,7 @@ sub sortGff3{
 								-seq         => $cds ,
 								-desc		=> $function
 							);  
-					
+							
 							if ($exon[0]->strand == 1) {
 								@exon = sort{$a->start <=> $b->start} @exon;
 							}
@@ -1450,7 +1450,7 @@ sub bedtools {
 			}
 		}			
 	}
-	elsif ($type =~/gene|polypeptide|mRNA|exon|intron|five_prime_UTR|three_prime_UTR|CDS/i){
+	elsif ($type =~/gene|mRNA|intron|five_prime_UTR|three_prime_UTR/i){
 		system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."-genfam.bed -fo $fna_output_file -name");
 	}
 	
