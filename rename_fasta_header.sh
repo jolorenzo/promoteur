@@ -3,10 +3,10 @@
 #qsub -q bioinfo.q -b yes -V -N format1 rename_fasta_header.sh
 
 # ARATH
-#perl -ne 'if($_ =~/^>Chr(\d.+) /){$label=$1;printf (">ARATH%02d\n",$label)} else{print $_}' /bank/arabidopsis_thaliana/TAIR10_whole_chromosomes.fasta > /bank/genfam/ARATH/ARATH-TAIR10-chromosome-genfam.fna
-#grep '>' /bank/genfam/ARATH/ARATH-TAIR10-chromosome-genfam.fna
-#perl -ne 'if($_ =~/^Chr(.+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("ARATH%02d\tTAIR10$2\n",$label)} else{print $_}' /bank/genfam/ARATH/TAIR10_GFF3_genes_transposons.gff > /bank/genfam/ARATH/ARATH-TAIR10-sequence_feature-genfam.gff3
-#awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/ARATH/ARATH-TAIR10-sequence_feature-genfam.gff3 | sort | uniq
+perl -ne 'if($_ =~/^>Chr(\d.+) /){$label=$1;printf (">ARATH%02d\n",$label)} else{print $_}' /bank/arabidopsis_thaliana/TAIR10_whole_chromosomes.fasta > /bank/genfam/ARATH/ARATH-TAIR10-chromosome-genfam.fna
+grep '>' /bank/genfam/ARATH/ARATH-TAIR10-chromosome-genfam.fna
+perl -ne 'if($_ =~/^Chr(\d+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("ARATH%02d\tTAIR10$2\n",$label)}' /bank/genfam/ARATH/TAIR10_GFF3_genes_transposons.gff > /bank/genfam/ARATH/ARATH-TAIR10-sequence_feature-genfam.gff3
+awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/ARATH/ARATH-TAIR10-sequence_feature-genfam.gff3 | sort | uniq
 
 # BRADI (gff3 chr + scaff)
 #perl -ne 'if($_ =~/^>Bd(\d+)/){$label=$1;printf (">BRADI%02d\n",$label)} elsif ($_ =~/^>scaffold_(\d.+)/) {$label=$1;printf (">BRADI_scaffold%03d\n",$label)} else{print $_}' /bank/brachypodium_distachyon/Bdistachyon_192.fa > /bank/genfam/BRADI/BRADI-JGI1-chromosome-genfam.fna
@@ -97,10 +97,10 @@
 #awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/MAIZE/MAIZE-MGDB5b60-sequence_feature-genfam.gff3 | sort | uniq
 
 # MALDO
-perl -ne 'if($_ =~/^>MDC(\d+\.\d+)/){$label=$1;printf (">MALDO_scaffold$label\n")} else{print $_}' /bank/genfam/MALDO/Mdomestica-chr.fna > /bank/genfam/MALDO/MALDO-JGI1-chromosome-genfam.fna
-grep '>' /bank/genfam/MALDO/MALDO-JGI1-chromosome-genfam.fna
-perl -ne 'if($_ =~/^MDC(\d+\.\d+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("MALDO_scaffold$label\tJGI1$2\n")} else{print $_}' /bank/genfam/MALDO/MALDO.gff3 > /bank/genfam/MALDO/MALDO-JGI1-sequence_feature-genfam.gff3
-awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/MALDO/MALDO-JGI1-sequence_feature-genfam.gff3 | sort | uniq
+#perl -ne 'if($_ =~/^>MDC(\d+\.\d+)/){$label=$1;printf (">MALDO_scaffold$label\n")} else{print $_}' /bank/genfam/MALDO/Mdomestica-chr.fna > /bank/genfam/MALDO/MALDO-JGI1-chromosome-genfam.fna
+#grep '>' /bank/genfam/MALDO/MALDO-JGI1-chromosome-genfam.fna
+#perl -ne 'if($_ =~/^MDC(\d+\.\d+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("MALDO_scaffold$label\tJGI1$2\n")} else{print $_}' /bank/genfam/MALDO/MALDO.gff3 > /bank/genfam/MALDO/MALDO-JGI1-sequence_feature-genfam.gff3
+#awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/MALDO/MALDO-JGI1-sequence_feature-genfam.gff3 | sort | uniq
 
 # MANES
 #perl -ne 'if($_ =~/^>scaffold(\d.+)/){$label=$1;printf (">MANES_scaffold%05d\n",$label)} else{print $_}' /bank/genfam/MANES/Mesculenta-chr.fna > /bank/genfam/MANES/MANES-JGI4.1-chromosome-genfam.fna
@@ -127,3 +127,9 @@ awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/MALDO/MALDO-JGI1-sequence_feature
 #perl -ne 'if($_ =~/^chr(.+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("SOLTU%02d\tJGI3$2\n",$label)} else{print $_}' /bank/genfam/SOLTU/Stuberosum_206_v3.4.gff3 > /bank/genfam/SOLTU/SOLTU-JGI3-sequence_feature-genfam.gff3
 #perl -ne 'if($_ !~ /^##/){s/chr/SOLTU/; print $_}' /bank/genfam/SOLTU/Stuberosum_206_v3.4.gff3 > /bank/genfam/SOLTU/SOLTU-JGI3-sequence_feature-genfam.gff3
 #awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/SOLTU/SOLTU-JGI3-sequence_feature-genfam.gff3 | sort | uniq
+
+# COFCA
+#perl -ne 'if($_ =~/^>chr(.+)/){$label=$1;printf (">COFCA%02d\n",$label)} else{print $_}' /bank/genfam/COFCA/pseudomolecules.fa > /bank/genfam/COFCA/COFCA-GENOSCOPE1-chromosome-genfam.fna
+#grep '>' /bank/genfam/COFCA/COFCA-GENOSCOPE1-chromosome-genfam.fna
+#perl -ne 'if($_ =~/^chr(.+)\t.+\ttransposable_element(\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("COFCA%02d\tGENOSCOPE1\ttransp_element$2\n",$label)} elsif ($_ =~/^chr(.+)\t.+(\t.+\t.+\t.+\t.+\t.+\t.+\t.+)/){$label=$1;printf ("COFCA%02d\tGENOSCOPE1$2\n",$label)} else{print $_}' /bank/genfam/COFCA/COFCA.gff3 > /bank/genfam/COFCA/COFCA-GENOSCOPE1-sequence_feature-genfam.gff3
+#awk '{if($0 !~ /^##/){print $1}}' /bank/genfam/COFCA/COFCA-GENOSCOPE1-sequence_feature-genfam.gff3 | sort | uniq
