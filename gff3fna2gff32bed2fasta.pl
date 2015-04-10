@@ -201,7 +201,7 @@ sub sortGff3{
 	);
 	
 	my $cpt = 0;
-	my (%feature, $id, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %other_plus, %cds, %transposable_gene, $transp_id);
+	my (%feature, $id, $mrna_id, %gene_refseq, %mrna, %polypeptide, %other, %other_RNA, %cds, %transposable_gene, $transp_id);
 	
 	while(my $feature = $gff->next_feature) {
 		if ($feature->primary_tag() eq "gene") {
@@ -253,7 +253,7 @@ sub sortGff3{
 		}
 		elsif (($feature->primary_tag =~/.+RNA/i) && ($feature->primary_tag !~/^mRNA/i)) { 	
 			($mrna_id) = $feature->get_tag_values("Parent"); 
-			push @{$other{$mrna_id}}, $feature;
+			push @{$other_RNA{$mrna_id}}, $feature;
 		}		
 		elsif ($feature->primary_tag =~ /transposon_fragment|transp_element|helitron|DNA_transposon|LTR_retrotransposon|non_LTR_retrotransposon|terminal_inverted_repeat_element/) { 	
 			($mrna_id) = $feature->get_tag_values("Parent"); 
@@ -267,7 +267,7 @@ sub sortGff3{
 		-format => "fasta"
 	);
 	
-	my %seq; 
+	my (%seq,%length); 
 	while(my $seqobj = $in->next_seq){
 		$seq{$seqobj->display_id} = $seqobj;
 	}
@@ -493,13 +493,15 @@ sub sortGff3{
 								@cds = sort{$b->start <=> $a->start} @cds;
 							}
 							my $cds;
-							foreach my $feature (@cds) {	
-								my $seqtrunc_cds = $seqobj->trunc($feature->start,$feature->end);	
-								if ($feature->strand == -1) {
-									$cds .= $seqtrunc_cds->revcom()->seq;
-								}
-								else {	
-									$cds .= $seqtrunc_cds->seq;
+							foreach my $feature (@cds) {
+								if ($feature->end < $seqobj->length()){
+									my $seqtrunc_cds = $seqobj->trunc($feature->start,$feature->end);	
+									if ($feature->strand == -1) {
+										$cds .= $seqtrunc_cds->revcom()->seq;
+									}
+									else {	
+										$cds .= $seqtrunc_cds->seq;
+									}
 								}
 							}
 							my $seqobj_cds = Bio::PrimarySeq->new (
@@ -514,27 +516,32 @@ sub sortGff3{
 									$feature->end($feature->start);
 								}
 							}
-							if ($exon[0]->strand == 1) {
-								@exon = sort{$a->start <=> $b->start} @exon;
-							}
-							else {
-								@exon = sort{$b->start <=> $a->start} @exon;
-							}
-							my $exon;
-							foreach my $feature (@exon) {	
-								my $seqtrunc_exon = $seqobj->trunc($feature->start,$feature->end);	
-								if ($feature->strand == -1) {
-									$exon .= $seqtrunc_exon->revcom()->seq;
+							if (defined $exon[0]){
+								if ($exon[0]->strand == 1) {
+									@exon = sort{$a->start <=> $b->start} @exon;
 								}
-								else {	
-									$exon .= $seqtrunc_exon->seq;
+								else {
+									@exon = sort{$b->start <=> $a->start} @exon;
 								}
-							}
-							my $seqobj_exon = Bio::PrimarySeq->new (
-								-display_id  => $old_mrna_id."_$title3",
-								-seq         => $exon ,
-								-desc		=> $function
-							);   
+								my $exon;
+								foreach my $feature (@exon) {
+									if ($feature->end < $seqobj->length()){									
+										my $seqtrunc_exon = $seqobj->trunc($feature->start,$feature->end);	
+										if ($feature->strand == -1) {
+											$exon .= $seqtrunc_exon->revcom()->seq;
+										}
+										else {	
+											$exon .= $seqtrunc_exon->seq;
+										}
+									}
+								}
+								my $seqobj_exon = Bio::PrimarySeq->new (
+									-display_id  => $old_mrna_id."_$title3",
+									-seq         => $exon ,
+									-desc		=> $function
+								); 
+								$seq_exon->write_seq($seqobj_exon);
+							}  
 							if ($cds =~ /^ATG.*/ &&  $cds =~ /.*(TAG|TAA|TGA)$/){
 								$is_complete++;
 							}
@@ -554,16 +561,21 @@ sub sortGff3{
 							$seqobj_pep->display_id($old_mrna_id."_$title3");
 							$seq_cds->write_seq($seqobj_cds);
 							$seq_pep->write_seq($seqobj_pep);
-							$seq_exon->write_seq($seqobj_exon);
 						}
 					}
 				}
-				elsif(exists $other{$name}){
-					foreach my $other (sort {$a->start <=> $b->start} @{$other{$name}}){
-						$out->write_feature($other);						
+				elsif(exists $other_RNA{$name}){
+					foreach my $other (sort {$a->start <=> $b->start} @{$other_RNA{$name}}){
+						my ($id) = $other->get_tag_values("ID");
+						$out->write_feature($other);
+						if (defined $other{$id}){
+							foreach my $other (sort {$a->start <=> $b->start} @{$other{$id}}){
+								$out->write_feature($other);
+							}		
+						}
 					}
 				}
-				else {
+				elsif(not exists $mrna{$name}) {
 					$count_mrna++;
 					my $strand = $gene->strand;
 					my $mrna = new Bio::SeqFeature::Generic(
@@ -703,7 +715,7 @@ sub sortGff3{
 							@cds = sort{$b->start <=> $a->start} @cds;
 						}
 						my $cds;
-						foreach my $feature (@cds) {	
+						foreach my $feature (@cds) {
 							my $seqtrunc_cds = $seqobj->trunc($feature->start,$feature->end);	
 							if ($feature->strand == -1) {
 								$cds .= $seqtrunc_cds->revcom()->seq;
@@ -766,7 +778,7 @@ sub sortGff3{
 						$seq_pep->write_seq($seqobj_pep);
 						$seq_exon->write_seq($seqobj_exon);	
 					}		
-				}							
+				}											
 			}
 			elsif  ($gene->primary_tag() eq "pseudogene"){
 				my ($name) = $gene->get_tag_values("ID");
@@ -775,7 +787,7 @@ sub sortGff3{
 					my $feat_mrna = $mrna{$name}{$mrna};
 					my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");	
 					$out->write_feature($feat_mrna);						
-					foreach my $other (sort {$a->start <=> $b->start} @{$other{$old_mrna_id}}){
+					foreach my $other (@{$other{$old_mrna_id}}){
 						$out->write_feature($other);						
 					}				
 				}
@@ -787,7 +799,7 @@ sub sortGff3{
 					my $feat_mrna = $mrna{$name}{$mrna};
 					my ($old_mrna_id) =  $feat_mrna->get_tag_values("ID");	
 					$out->write_feature($feat_mrna);						
-					foreach my $other (sort {$a->start <=> $b->start} @{$other{$old_mrna_id}}){
+					foreach my $other (@{$other{$old_mrna_id}}){
 						$out->write_feature($other);						
 					}				
 				}
@@ -795,7 +807,7 @@ sub sortGff3{
 			elsif (($gene->primary_tag =~ /transposable_element|repeat_region/)){
 				my ($name) = $gene->get_tag_values("ID");
 				$out->write_feature($gene);						
-				foreach my $other (sort {$a->start <=> $b->start} @{$other{$name}}){
+				foreach my $other (@{$other{$name}}){
 					$out->write_feature($other);						
 				}				
 			}
@@ -1049,10 +1061,9 @@ sub gff3tobed_before{
 	my $new_file = $gff3_file;
 	my $strand=0;
 	my $strand1='-';
-	my $gff = new Bio::Tools::GFF(
-	
-	-file => $new_file,
-	-gff_version => 3
+	my $gff = new Bio::Tools::GFF(	
+		-file => $new_file,
+		-gff_version => 3
 	);
 	
 	my $in = new Bio::SeqIO(
@@ -1142,12 +1153,12 @@ sub gff3tobed_before{
 						}
 					}
 				}				
-				else{					
-					#Cas du gène dans un autre gène (intron)
-					if ($gene{$seq_id}{$gene-1}->start < $feature->start){
-						if ($type =~ /CDS/i){
-							if (defined $feature_cds){
-								if(($gene{$seq_id}{$gene-1}->end >= $feature->start)){
+				else{
+					if ($type =~ /CDS/i){
+						if (defined $feature_cds){					
+							#Cas du gène dans un autre gène (intron)
+							if ($gene{$seq_id}{$gene-1}->start < $feature_cds->start){							
+								if(($gene{$seq_id}{$gene-1}->end >= $feature_cds->start)){
 									my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");														
 									my (@keys) = keys%{$mRNA{$id}};	
 									my ($mrna_id) = $keys[0];								
@@ -1184,7 +1195,7 @@ sub gff3tobed_before{
 									}				
 								}					
 								#Cas de 2 gènes qui se suivent
-								elsif($gene{$seq_id}{$gene-1}->end < $feature->start){
+								elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start){
 									my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");					
 									my (@keys) = keys%{$mRNA{$id}};	
 									my ($mrna_id) = $keys[0];
@@ -1199,35 +1210,31 @@ sub gff3tobed_before{
 											}
 										}
 										else{
-											if($gene{$seq_id}{$gene-1}->end >= $feature->start+$begin){			
-												print FILE join("\t",$feature->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											if($gene{$seq_id}{$gene-1}->end >= $feature_cds->start+$begin){			
+												print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 											}				
-											elsif($gene{$seq_id}{$gene-1}->end < $feature->start+$begin){
-												print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start+$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 											}									
 										}
 									}
 									else{
-										if($gene{$seq_id}{$gene-1}->end >= $feature->start+$begin){			
-											print FILE join("\t",$feature->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										if($gene{$seq_id}{$gene-1}->end >= $feature_cds->start+$begin){			
+											print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 										}				
-										elsif($gene{$seq_id}{$gene-1}->end < $feature->start+$begin){
-											print FILE join("\t",$feature->seq_id,$feature->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start+$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 										}									
 									}
 								}
 							}
-						}
-					}
-					if ($gene{$seq_id}{$gene-1}->start == $feature->start){
-						my $cpt1 = 1;
-						while ((exists $gene{$seq_id}{$gene-$cpt1}) && ($gene{$seq_id}{$gene-$cpt1}->start == $feature->start)){
-							$cpt1 += 1;
-						}
-						#Cas du début de chromosome -x
-						if(not exists $gene{$seq_id}{$gene-$cpt1-1}){
-							if ($type =~ /CDS/i){
-								if (defined $feature_cds){								
+							elsif ($gene{$seq_id}{$gene-1}->start == $feature_cds->start){
+								my $cpt1 = 1;
+								while ((exists $gene{$seq_id}{$gene-$cpt1}) && ($gene{$seq_id}{$gene-$cpt1}->start == $feature_cds->start)){
+									$cpt1 += 1;
+								}
+								#Cas du début de chromosome -x
+								if(not exists $gene{$seq_id}{$gene-$cpt1-1}){
 									#Cas de 2 gènes identique en start et placé en début de chromosome
 									if(($feature->start+$begin > 0)){
 
@@ -1240,24 +1247,20 @@ sub gff3tobed_before{
 										print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-$feature_cds->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 									}
 								}
-							}
-						}
-						else{							
-							if ($type =~ /CDS/i){
-								if (defined $feature_cds){
-									if ($gene{$seq_id}{$gene-$cpt1}->end < $feature->start){
+								else{							
+									if ($gene{$seq_id}{$gene-$cpt1}->end < $feature_cds->start){
 										my ($id) = $gene{$seq_id}{$gene-$cpt1}->get_tag_values("ID");					
 										my (@keys) = keys%{$mRNA{$id}};	
 										my ($mrna_id) = $keys[0];									
 										if (defined $mrna_id){
 											if (defined $CDS{$mrna_id}[0]){
 												my $size = scalar(@{$CDS{$mrna_id}});	
-										
+								
 												#Cas de x gènes identique en start et région non codante entre le gene -x et notre gène
-												if ($CDS{$mrna_id}[$size-1]->end < $feature->start+$begin){									
+												if ($CDS{$mrna_id}[$size-1]->end < $feature_cds->start+$begin){									
 													print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 												}
-												elsif ($CDS{$mrna_id}[$size-1]->end >= $feature->start+$begin){					
+												elsif ($CDS{$mrna_id}[$size-1]->end >= $feature_cds->start+$begin){					
 													print FILE join("\t",$feature_cds->seq_id,$CDS{$mrna_id}[$size-1]->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
 												}
 											}
@@ -1270,7 +1273,7 @@ sub gff3tobed_before{
 										}
 									}
 									#Cas de x gènes identique en start dans un autre gène
-									elsif ($gene{$seq_id}{$gene-$cpt1}->end >= $feature->start){
+									elsif ($gene{$seq_id}{$gene-$cpt1}->end >= $feature_cds->start){
 										my ($id) = $gene{$seq_id}{$gene-$cpt1}->get_tag_values("ID");					
 										my (@keys) = keys%{$mRNA{$id}};	
 										my ($mrna_id) = $keys[0];									
@@ -1307,8 +1310,8 @@ sub gff3tobed_before{
 										}
 									}
 								}	
-							}			
-						}
+							}
+						}				
 					}
 				}
 			}
@@ -1464,20 +1467,20 @@ sub gff3tobed_before{
 											}
 										}
 										else{
-											if ($gene{$seq_id}{$gene+1}->start <= $feature->end-$begin){
-												print FILE join("\t",$feature->seq_id,$feature->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											if ($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
 											}
-											elsif($gene{$seq_id}{$gene+1}->start > $feature->end-$begin){
-												print FILE join("\t",$feature->seq_id,$feature->end-$end-1,$feature->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											elsif($gene{$seq_id}{$gene+1}->start > $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
 											}
 										}
 									}
 									else{
-										if ($gene{$seq_id}{$gene+1}->start <= $feature->end-$begin){
-											print FILE join("\t",$feature->seq_id,$feature->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+										if ($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
 										}
 										elsif($gene{$seq_id}{$gene+1}->start > $feature->end-$begin){
-											print FILE join("\t",$feature->seq_id,$feature->end-$end-1,$feature->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
 										}
 									}
 								}
@@ -1643,6 +1646,37 @@ sub gff3tobed_before{
 												}
 												else{
 													print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}												
+											}
+											elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end){												
+												my ($id) = $gene{$seq_id}{$gene+$cpt1+1}->get_tag_values("ID");					
+												my (@keys) = keys%{$mRNA{$id}};	
+												my ($mrna_id) = $keys[0];								
+												if (defined $mrna_id){	
+													if (defined $CDS{$mrna_id}[0]){
+														if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+														}
+														elsif($CDS{$mrna_id}[0]->start <= $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+														}
+													}
+													else{
+														if ($gene{$seq_id}{$gene+$cpt1+1}->start <= $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+$cpt1+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+														}
+														elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+														}
+													}
+												}
+												else{
+													if ($gene{$seq_id}{$gene+$cpt1+1}->start <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+$cpt1+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}
+													elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}
 												}
 											}									
 										}
@@ -1694,19 +1728,14 @@ sub gff3tobed_before{
 
 sub gff3tobed_after{
 
-	my $new_file = $fna_output_directory.$title."-locus_tag-genfam.gff3";
+	my $new_file = $gff3_file;
 	my $strand=0;
 	my $strand1='-';
+	my $gff = new Bio::Tools::GFF(
 	
-	##### Liste les fichiers ayant l'extension .bed 
-	my @list = glob($fna_output_directory.$title."-".$type."_after-genfam.bed"); 
-  
-	### recupere le nombre de fichier 
-	my $numberoffile = scalar(@list);
-	
-	for ( my $v = 0; $v < $numberoffile; $v++ ) {
-		unlink $list[$v]; #supprime les fichiers
-	}
+	-file => $new_file,
+	-gff_version => 3
+	);
 	
 	my $in = new Bio::SeqIO(
 		-file => $genome,
@@ -1719,184 +1748,653 @@ sub gff3tobed_after{
 	}
 	$in->close;
 	
-	my $gff = new Bio::Tools::GFF(
-	-file => $new_file,
-	-gff_version => 3
-	);
-	
 	my $cpt = 0;
-	my $cpt1 = 0;
-	my $cpt2 = 0;
-	my $cpt3 = 0;
-	my $cpt4 = 0;
-	my $cpt5 = 0;
 	
-	my (%gene, %mRNA, %polypeptide, %CDS, %exon, %five_prime_UTR);
+	my (%gene, %mRNA, %CDS, %exon, %five_prime_UTR, $mrna_id, $id, %transposable_region);
 	
 	while(my $feature = $gff->next_feature) {
-		if (($type =~ /gene/i) && ($feature->primary_tag() eq "gene")) {
-			$cpt++;
-			$gene{$cpt} = $feature;			
+		if ($feature->primary_tag() eq "gene") {
+			$cpt++;			
+			($id) = $feature->get_tag_values("ID");
+			$gene{$feature->seq_id}{$cpt} = $feature;			
 		}
-		elsif (($type =~ /mRNA/i) && ($feature->primary_tag eq "mRNA")) {
-			$cpt1++;
-			$mRNA{$cpt1} = $feature;
+		elsif ($feature->primary_tag eq "mRNA") {
+			($mrna_id) = $feature->get_tag_values("ID");
+			($id)  = $feature->get_tag_values("Parent");
+			$mRNA{$id}{$mrna_id} = $feature;
 		}
-		elsif (($type =~ /polypeptide/i) && ($feature->primary_tag eq "polypeptide")) { 
-			$cpt2++; 
-			$polypeptide{$cpt2} = $feature;
+		elsif ($feature->primary_tag eq "exon") { 	 
+			($mrna_id) = $feature->get_tag_values("Parent");  
+			push @{$exon{$mrna_id}}, $feature;
 		}
-		elsif (($type =~ /exon/i) && ($feature->primary_tag eq "exon")) { 	 
-			$cpt3++;
-			$exon{$cpt3} = $feature;
+		elsif ($feature->primary_tag eq "CDS") {
+			($mrna_id) = $feature->get_tag_values("Parent"); 
+			push @{$CDS{$mrna_id}}, $feature;
 		}
-		elsif (($type =~ /CDS/i) && ($feature->primary_tag eq "CDS")) {
-			$cpt4++;
-			$CDS{$cpt4} = $feature;
+		elsif ($feature->primary_tag =~/five_prime_UTR/i) { 	
+			($mrna_id) = $feature->get_tag_values("Parent"); 
+			push @{$five_prime_UTR{$mrna_id}}, $feature;
 		}
-		elsif (($type =~ /five_prime_UTR/i) && ($feature->primary_tag =~/five_prime_UTR/i)) { 	
-			$cpt5++;
-			$five_prime_UTR{$cpt5} = $feature;
+		#transposon_fragment|DNA_transposon|LTR_retrotransposon|tRNA|rRNA
+		elsif ($feature->primary_tag =~/transposable_element|repeat_region/i) {
+			$cpt++; 	
+			($mrna_id) = $feature->get_tag_values("ID"); 
+			$gene{$feature->seq_id}{$cpt} = $feature;
 		}
 	}
 	$gff->close;
-	
-	#my $var = join "\n", keys %gene;
-	#print $var;
-	
-	my $gff1 = new Bio::Tools::GFF(
-	-file => $new_file,
-	-gff_version => 3
-	);
-	
-	my $j = 0;	
-	
-	while(my $feature = $gff1->next_feature()) {		
-		if ($type =~ /gene/i){
-			if($feature->primary_tag =~/$type/i){
-			$j++;
-			print $feature->end;
-				if((not exists $gene{$j+1}) && ($feature->end+$end <= $length{$feature->seq_id})){
-					print "1";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
-					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
-				}
-				elsif((not exists $gene{$j+1}) && ($feature->end+$end > $length{$feature->seq_id})){
-					print "2";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
-					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$length{$feature->seq_id},$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
-				}
-				elsif(($gene{$j-1}->end > $feature->end+$begin) && ($gene{$j-1}->end > $feature->end)){			
-					print "3";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
-					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
 
-					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
+	my $outfile = $bed_output_file;
+	print "Print data to $outfile...\n";
+	
+	open(FILE, ">$outfile") or die "Could not open file '$outfile' $!";
+	
+	foreach my $seq_id (sort {$a cmp $b} keys%gene){
+		foreach my $gene (sort {$a <=> $b} keys%{$gene{$seq_id}}){
+			
+			my ($feature) = $gene{$seq_id}{$gene};
+			my $score = ".";
+			
+			#Brin +
+			if (($feature->strand=~/^-1/) && ($feature->primary_tag !~/transposable_element_gene/)){
+				my ($feature_cds);
+				my ($size);	
+				my ($mrna_id);
+				my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");
+			
+				my @keys = keys%{$mRNA{$id}};	
+				$mrna_id = $keys[0];
+				if (defined $mrna_id){
+					if (defined $CDS{$mrna_id}[0]){
+						$feature_cds = $CDS{$mrna_id}[0];
+						$size = scalar(@{$CDS{$mrna_id}});
+					}					
 				}
-				elsif(($gene{$j+1}->start <= $feature->end+$end) && ($gene{$j-1}->end <= $feature->end)){			
-					print "4";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
+				
+				#Cas du premier gène du chromosome
+				if (not exists $gene{$seq_id}{$gene-1}){
+					if ($type =~ /CDS/i){
+						if (defined $feature_cds){							
+							if($feature_cds->start+$begin > 0){						
+								print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";								
+							}
+							elsif($feature_cds->start+$begin <= 0){
+								print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-$feature_cds->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+							}
+						}
 					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
+				}				
+				else{
+					if ($type =~ /CDS/i){
+						if (defined $feature_cds){					
+							#Cas du gène dans un autre gène (intron)
+							if ($gene{$seq_id}{$gene-1}->start < $feature_cds->start){							
+								if(($gene{$seq_id}{$gene-1}->end >= $feature_cds->start)){
+									my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");														
+									my (@keys) = keys%{$mRNA{$id}};	
+									my ($mrna_id) = $keys[0];								
+									if ((defined $mrna_id)){
+										if (defined $CDS{$mrna_id}[0]){
+											my ($cpt)=0;
+											my $size = scalar(@{$CDS{$mrna_id}});								
+											while (($feature_cds->start	> $CDS{$mrna_id}[$cpt]->end) && ($cpt < $size-1)){
+												$cpt += 1;
+											}
+											if ($CDS{$mrna_id}[0]->end > $feature_cds->start){
+												if ($gene{$seq_id}{$gene-1}->start >= $feature_cds->start+$begin){
+													print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}		
+												elsif($gene{$seq_id}{$gene-1}->start < $feature_cds->start+$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}
+											}
+											else{
+												if ($CDS{$mrna_id}[$cpt-1]->end >= $feature_cds->start+$begin){
+													print FILE join("\t",$feature_cds->seq_id,$CDS{$mrna_id}[$cpt-1]->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}		
+												elsif($CDS{$mrna_id}[$cpt-1]->end < $feature_cds->start+$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}
+											}	
+										}
+										else{
+											print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+										}
+									}
+									else{
+										print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+									}				
+								}					
+								#Cas de 2 gènes qui se suivent
+								elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start){
+									my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");					
+									my (@keys) = keys%{$mRNA{$id}};	
+									my ($mrna_id) = $keys[0];
+									if ((defined $mrna_id)){
+										if (defined $CDS{$mrna_id}[0]){
+											my $size = scalar(@{$CDS{$mrna_id}});
+											if ($CDS{$mrna_id}[$size-1]->end >= $feature_cds->start+$begin){		
+												print FILE join("\t",$feature_cds->seq_id,$CDS{$mrna_id}[$size-1]->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											}	
+											elsif($CDS{$mrna_id}[$size-1]->end < $feature_cds->start+$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											}
+										}
+										else{
+											if($gene{$seq_id}{$gene-1}->end >= $feature_cds->start+$begin){			
+												print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											}				
+											elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start+$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											}									
+										}
+									}
+									else{
+										if($gene{$seq_id}{$gene-1}->end >= $feature_cds->start+$begin){			
+											print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+										}				
+										elsif($gene{$seq_id}{$gene-1}->end < $feature_cds->start+$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+										}									
+									}
+								}
+							}
+							elsif ($gene{$seq_id}{$gene-1}->start == $feature_cds->start){
+								my $cpt1 = 1;
+								while ((exists $gene{$seq_id}{$gene-$cpt1}) && ($gene{$seq_id}{$gene-$cpt1}->start == $feature_cds->start)){
+									$cpt1 += 1;
+								}
+								#Cas du début de chromosome -x
+								if(not exists $gene{$seq_id}{$gene-$cpt1-1}){
+									#Cas de 2 gènes identique en start et placé en début de chromosome
+									if(($feature->start+$begin > 0)){
 
-					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$gene{$j+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
+										#gff2bed:
+										print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+									}
+									elsif (($feature->start+$begin <= 0)){
+
+										#gff2bed:
+										print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-$feature_cds->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+									}
+								}
+								else{							
+									if ($gene{$seq_id}{$gene-$cpt1}->end < $feature_cds->start){
+										my ($id) = $gene{$seq_id}{$gene-$cpt1}->get_tag_values("ID");					
+										my (@keys) = keys%{$mRNA{$id}};	
+										my ($mrna_id) = $keys[0];									
+										if (defined $mrna_id){
+											if (defined $CDS{$mrna_id}[0]){
+												my $size = scalar(@{$CDS{$mrna_id}});	
+								
+												#Cas de x gènes identique en start et région non codante entre le gene -x et notre gène
+												if ($CDS{$mrna_id}[$size-1]->end < $feature_cds->start+$begin){									
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}
+												elsif ($CDS{$mrna_id}[$size-1]->end >= $feature_cds->start+$begin){					
+													print FILE join("\t",$feature_cds->seq_id,$CDS{$mrna_id}[$size-1]->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+												}
+											}
+											else{
+												print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-$cpt1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";									
+											}
+										}
+										else{
+											print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-$cpt1}->end,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";									
+										}
+									}
+									#Cas de x gènes identique en start dans un autre gène
+									elsif ($gene{$seq_id}{$gene-$cpt1}->end >= $feature_cds->start){
+										my ($id) = $gene{$seq_id}{$gene-$cpt1}->get_tag_values("ID");					
+										my (@keys) = keys%{$mRNA{$id}};	
+										my ($mrna_id) = $keys[0];									
+										if (defined $mrna_id){
+											if (defined $CDS{$mrna_id}[0]){
+												my ($cpt)=0;
+												my $size = scalar(@{$CDS{$mrna_id}});								
+												while (($feature_cds->start	> $CDS{$mrna_id}[$cpt]->start) && ($cpt < $size-1)){
+													$cpt += 1;
+												}
+												if ($CDS{$mrna_id}[0]->end > $feature_cds->start){
+													if ($gene{$seq_id}{$gene-1}->start >= $feature_cds->start+$begin){
+														print FILE join("\t",$feature_cds->seq_id,$gene{$seq_id}{$gene-1}->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}		
+													elsif($gene{$seq_id}{$gene-1}->start < $feature_cds->start+$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}
+												}
+												else{
+													if ($CDS{$mrna_id}[$cpt-1]->end < $feature_cds->start+$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}
+													elsif ($CDS{$mrna_id}[$cpt-1]->end >= $feature_cds->start+$begin){									
+														print FILE join("\t",$feature_cds->seq_id,$CDS{$mrna_id}[$cpt]->start-1,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+													}
+												}
+											}
+											else{
+												print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+											}
+										}
+										else{
+											print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","-")."\n";
+										}
+									}
+								}	
+							}
+						}				
+					}
 				}
-				elsif(($gene{$j+1}->start > $feature->end+$end) && ($gene{$j-1}->end <= $feature->start)){			
-					print "5";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
+			}
+			#Brin -
+			elsif (($feature->strand=~/^1/) && ($feature->primary_tag !~/transposable_element_gene/)){				
+				my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");					
+				my (@keys) = keys%{$mRNA{$id}};	
+				my ($mrna_id) = $keys[0];
+				my ($feature_cds);
+				if (defined $mrna_id){
+					if (defined $CDS{$mrna_id}){
+						if (defined $CDS{$mrna_id}[0]){
+							my ($size) = scalar(@{$CDS{$mrna_id}});								
+							$feature_cds = $CDS{$mrna_id}[$size-1];
+						}
 					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
-
-					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
 				}
-				elsif(($gene{$j+1}->start > $feature->end) && ($feature->end+$end >= $gene{$j+1}->start)){			
-					print "6";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
+				#Cas fin chromosome
+				if(not exists $gene{$seq_id}{$gene+1}){					
+					if ($type =~ /CDS/i){	
+						if (defined $feature_cds){				
+							if ($gene{$seq_id}{$gene-1}->end <= $feature_cds->end) {
+								if ($length{$seq_id} > $feature_cds->end-$begin){
+									print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+								}
+								elsif ($length{$seq_id} <= $feature_cds->end-$begin){
+									print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$length{$seq_id}-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+								}
+							}
+							#cas d'un gène à l'intérieur d'un autre
+							elsif ($gene{$seq_id}{$gene-1}->end > $feature_cds->end){ 
+								my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");					
+								my (@keys) = keys%{$mRNA{$id}};	
+								my ($mrna_id) = $keys[0];														
+								if (defined $mrna_id){
+									if (defined $CDS{$mrna_id}[0]){										
+										if ($feature_cds->end < $CDS{$mrna_id}[0]->start){
+											if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+											elsif($CDS{$mrna_id}[0]->start <= $feature->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+										}
+										elsif ($feature_cds->start > $CDS{$mrna_id}[0]->end){
+											my ($size) = scalar(@{$CDS{$mrna_id}});
+											my ($cpt)=$size-1;
+											if (($CDS{$mrna_id}[$cpt]->end < $feature_cds->start)||($CDS{$mrna_id}[$cpt]->end > $feature_cds->start)&&($CDS{$mrna_id}[$cpt]->end < $feature_cds->end)){
+												if ($gene{$seq_id}{$gene-1}->end > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($gene{$seq_id}{$gene-1}->end <= $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene-1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+											elsif (($CDS{$mrna_id}[$cpt]->start > $feature_cds->end)){							
+												while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
+													$cpt -= 1;
+												}
+									
+												if ($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($CDS{$mrna_id}[$cpt+1]->start <= $feature->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[$cpt+1]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+										}
+									}
+									else{
+										if($gene{$seq_id}{$gene-1}->end > $feature_cds->end-$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+										elsif($gene{$seq_id}{$gene-1}->end <= $feature_cds->end-$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene-1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+									}
+								}
+								else{
+									print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+								}
+							}
+						}
 					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
-					}
-
-					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$gene{$j+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
 				}
 				else{
-					print "7";
-					my $file = $fna_output_directory.$title."-".$type."_after-genfam.bed";
-					unless(open FILE, '>>'.$file) {
-						die "Unable to create $file";
+					#Cas début chromosome					
+					if (not exists $gene{$seq_id}{$gene-1}){						
+						if ($type =~ /CDS/i){
+							if (defined $feature_cds){
+								#
+								if(($gene{$seq_id}{$gene+1}->start <= $feature_cds->end) && ($gene{$seq_id}{$gene+1}->end > $feature_cds->end)){
+									my ($id) = $gene{$seq_id}{$gene+1}->get_tag_values("ID");					
+									my (@keys) = keys%{$mRNA{$id}};	
+									my ($mrna_id) = $keys[0];								
+									if (defined $mrna_id){	
+										if (defined $CDS{$mrna_id}[0]){
+											if ($feature_cds->end < $CDS{$mrna_id}[0]->start){
+												if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($CDS{$mrna_id}[0]->start <= $feature->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+											elsif ($feature_cds->start > $CDS{$mrna_id}[0]->end){												
+												my ($size) = scalar(@{$CDS{$mrna_id}});
+												my ($cpt)=$size-1;							
+												if (($CDS{$mrna_id}[$cpt]->end < $feature_cds->start)||($CDS{$mrna_id}[$cpt]->end > $feature_cds->start)&&($CDS{$mrna_id}[$cpt]->end < $feature_cds->end)){
+													if ($gene{$seq_id}{$gene+1}->end > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+													elsif($gene{$seq_id}{$gene+1}->end <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+												elsif (($CDS{$mrna_id}[$cpt]->start > $feature_cds->end)){							
+													while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
+														$cpt -= 1;
+													}								
+													if($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+													elsif($CDS{$mrna_id}[$cpt+1]->start <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[$cpt+1]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+												elsif (($CDS{$mrna_id}[$cpt]->start < $feature_cds->end) && ($CDS{$mrna_id}[$cpt]->end > $feature_cds->end)){							
+													print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+										}
+										else{
+											print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+									}
+									else{
+										print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+									}
+								}
+								#
+								elsif($gene{$seq_id}{$gene+1}->start > $feature_cds->end){
+									my ($id) = $gene{$seq_id}{$gene+1}->get_tag_values("ID");					
+									my (@keys) = keys%{$mRNA{$id}};	
+									my ($mrna_id) = $keys[0];				
+									if (defined $mrna_id){
+										if (defined $CDS{$mrna_id}[0]){
+											if ($CDS{$mrna_id}[0]->start <= $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+											elsif($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+										}
+										else{
+											if ($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+											elsif($gene{$seq_id}{$gene+1}->start > $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+										}
+									}
+									else{
+										if ($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+										elsif($gene{$seq_id}{$gene+1}->start > $feature->end-$begin){
+											print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+									}
+								}
+							}
+						}
 					}
-					#change -1 to - and 1 to +
-					if($feature->strand=~/-/){
-						$strand1='-';
-					}else{
-						$strand1='+';
+					else{						
+						if ($type =~ /CDS/i){
+							if (defined $feature_cds){
+								#cas d'un gène à l'intérieur d'un autre -1
+								if($gene{$seq_id}{$gene-1}->end > $feature_cds->end){
+									my ($id) = $gene{$seq_id}{$gene-1}->get_tag_values("ID");					
+									my (@keys) = keys%{$mRNA{$id}};	
+									my ($mrna_id) = $keys[0];								
+									if (defined $mrna_id){	
+										if (defined $CDS{$mrna_id}[0]){
+											if ($feature_cds->end < $CDS{$mrna_id}[0]->start){
+												if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($CDS{$mrna_id}[0]->start <= $feature->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+											else{
+												my ($size) = scalar(@{$CDS{$mrna_id}});
+												my ($cpt)=$size-1;
+												if (($CDS{$mrna_id}[$cpt]->end < $feature_cds->start)||($CDS{$mrna_id}[$cpt]->end > $feature_cds->start)&&($CDS{$mrna_id}[$cpt]->end < $feature_cds->end)){
+													if ($gene{$seq_id}{$gene-1}->end > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+													elsif($gene{$seq_id}{$gene-1}->end <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene-1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+												elsif (($CDS{$mrna_id}[$cpt]->start > $feature_cds->end)){							
+													while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
+														$cpt -= 1;
+													}
+													if ($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+													elsif($CDS{$mrna_id}[$cpt+1]->start <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[$cpt+1]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+											}
+										}
+										else{
+											print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+										}
+									}
+									else{
+										print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+									}
+								}												
+								#Cas d'un gène chevauchant 2 gènes
+								elsif($gene{$seq_id}{$gene-1}->end <= $feature_cds->end){
+									if($gene{$seq_id}{$gene+1}->start <= $feature_cds->end){ 
+										if($gene{$seq_id}{$gene+1}->end > $feature_cds->end){
+											my ($id) = $gene{$seq_id}{$gene+1}->get_tag_values("ID");					
+											my (@keys) = keys%{$mRNA{$id}};	
+											my ($mrna_id) = $keys[0];						
+											if (defined $mrna_id){	
+												if (defined $CDS{$mrna_id}[0]){
+													if ($feature_cds->end < $CDS{$mrna_id}[0]->start){
+														if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+														elsif($CDS{$mrna_id}[0]->start <= $feature->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+													}
+													elsif ($feature_cds->start > $CDS{$mrna_id}[0]->end){
+														my ($size) = scalar(@{$CDS{$mrna_id}});
+														my ($cpt)=$size-1;
+														if (($CDS{$mrna_id}[$cpt]->end < $feature_cds->start)||($CDS{$mrna_id}[$cpt]->end > $feature_cds->start)&&($CDS{$mrna_id}[$cpt]->end < $feature_cds->end)){
+															if ($gene{$seq_id}{$gene+1}->end > $feature_cds->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+															elsif($gene{$seq_id}{$gene+1}->end <= $feature_cds->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+														}
+														elsif (($CDS{$mrna_id}[$cpt]->start > $feature_cds->end)){							
+															while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
+																$cpt -= 1;
+															}
+															if ($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+															elsif($CDS{$mrna_id}[$cpt+1]->start <= $feature->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[$cpt+1]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+														}
+													}
+												}
+												else{
+													print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";											
+												}											
+											}
+											else{
+												print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";											
+											}
+										}
+										elsif($gene{$seq_id}{$gene+1}->end <= $feature_cds->end){
+											my $cpt1 = 1;
+											while ((exists $gene{$seq_id}{$gene+$cpt1}) && ($gene{$seq_id}{$gene+$cpt1}->end <= $feature_cds->end)){ #attention
+												$cpt1 += 1;
+											}
+											if(not exists $gene{$seq_id}{$gene+$cpt1+1}){													
+												if ($length{$seq_id} > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif ($length{$seq_id} <= $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$length{$seq_id}-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+											elsif(($gene{$seq_id}{$gene+$cpt1+1}->start <= $feature_cds->end) && ($gene{$seq_id}{$gene+$cpt1+1}->end > $feature_cds->end)){												
+												my ($id) = $gene{$seq_id}{$gene+$cpt1+1}->get_tag_values("ID");					
+												my (@keys) = keys%{$mRNA{$id}};	
+												my ($mrna_id) = $keys[0];								
+												if (defined $mrna_id){	
+													if (defined $CDS{$mrna_id}[0]){
+														if ($feature_cds->end < $CDS{$mrna_id}[0]->start){
+															if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+															elsif($CDS{$mrna_id}[0]->start <= $feature->end-$begin){
+																print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+														}
+														elsif ($feature_cds->start > $CDS{$mrna_id}[0]->end){												
+															my ($size) = scalar(@{$CDS{$mrna_id}});
+															my ($cpt)=$size-1;							
+															if (($CDS{$mrna_id}[$cpt]->end < $feature_cds->start)||($CDS{$mrna_id}[$cpt]->end > $feature_cds->start)&&($CDS{$mrna_id}[$cpt]->end < $feature_cds->end)){
+																if ($gene{$seq_id}{$gene+1}->end > $feature_cds->end-$begin){
+																	print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+																}
+																elsif($gene{$seq_id}{$gene+1}->end <= $feature_cds->end-$begin){
+																	print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->end-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+																}
+															}
+															elsif (($CDS{$mrna_id}[$cpt]->start > $feature_cds->end)){							
+																while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
+																	$cpt -= 1;
+																}								
+																if($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
+																	print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+																}
+																elsif($CDS{$mrna_id}[$cpt+1]->start <= $feature_cds->end-$begin){
+																	print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[$cpt+1]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+																}
+															}
+															elsif (($CDS{$mrna_id}[$cpt]->start < $feature_cds->end) && ($CDS{$mrna_id}[$cpt]->end > $feature_cds->end)){							
+																print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+															}
+														}
+													}
+													else{
+														print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+												else{
+													print FILE join("\t",$feature_cds->seq_id,1,1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}												
+											}
+											elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end){												
+												my ($id) = $gene{$seq_id}{$gene+$cpt1+1}->get_tag_values("ID");					
+												my (@keys) = keys%{$mRNA{$id}};	
+												my ($mrna_id) = $keys[0];								
+												if (defined $mrna_id){	
+													if (defined $CDS{$mrna_id}[0]){
+														if ($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+														elsif($CDS{$mrna_id}[0]->start <= $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+													}
+													else{
+														if ($gene{$seq_id}{$gene+$cpt1+1}->start <= $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+$cpt1+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+														elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end-$begin){
+															print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+														}
+													}
+												}
+												else{
+													if ($gene{$seq_id}{$gene+$cpt1+1}->start <= $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+$cpt1+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+													elsif($gene{$seq_id}{$gene+$cpt1+1}->start > $feature_cds->end-$begin){
+														print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+													}
+												}
+											}									
+										}
+									}
+									#cas d'un gène à l'intérieur d'un autre
+									elsif($gene{$seq_id}{$gene+1}->start > $feature_cds->end){
+										my ($id) = $gene{$seq_id}{$gene+1}->get_tag_values("ID");					
+										my (@keys) = keys%{$mRNA{$id}};	
+										my ($mrna_id) = $keys[0];
+										if (defined $mrna_id){
+											if (defined $CDS{$mrna_id}[0]){
+												if($CDS{$mrna_id}[0]->start <= $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$CDS{$mrna_id}[0]->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($CDS{$mrna_id}[0]->start > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+											else{
+												if($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+												elsif($gene{$seq_id}{$gene+1}->start > $feature_cds->end-$begin){
+													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+												}
+											}
+										}
+										else{
+											if($gene{$seq_id}{$gene+1}->start <= $feature_cds->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$gene{$seq_id}{$gene+1}->start-1,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+											elsif($gene{$seq_id}{$gene+1}->start > $feature->end-$begin){
+												print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".","+")."\n";
+											}
+										}
+									}
+								}
+							}
+						}						
 					}
-
-					#gff2bed:
-					print FILE join("\t",$feature->seq_id,$feature->end+$begin,$feature->end+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,".",$strand1)."\n";
-					close FILE;
-				}				
-			}
+				}
+			}				
 		}
 	}
-	$gff1->close();
+	close FILE;
 	
-	system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."_before-genfam.bed -fo $fna_output_file -name");
+	system("bedtools getfasta -s -fi $genome -bed $outfile -fo $fna_output_file -name");
 }
 
 sub bedtools {
@@ -1907,14 +2405,16 @@ sub bedtools {
 	#usage system: system("bedtools getfasta [OPTIONS] -fi <input FASTA> -bed <BED/GFF/VCF> -fo <output FASTA>");
 	if ($type =~/all/i){
 		foreach my $VAR (@tab_type){
-			my $fich = $fna_output_directory.$title."-".$VAR."-genfam.bed";
+			my $fich = $bed_output_directory.$title."-".$VAR."-genfam.bed";
 			if (-e $fich){
+				#print "bedtools getfasta -s -fi $genome -bed ".$fich." -fo ".$fna_output_directory.$title2."-".$VAR."-genfam.fna -name";
 				system("bedtools getfasta -s -fi $genome -bed ".$fich." -fo ".$fna_output_directory.$title2."-".$VAR."-genfam.fna -name");
 			}
 		}			
 	}
 	elsif ($type =~/gene|mRNA|intron|five_prime_UTR|three_prime_UTR/i){
-		system("bedtools getfasta -s -fi $genome -bed ".$fna_output_directory.$title."-".$type."-genfam.bed -fo $fna_output_file -name");
+		#print "bedtools getfasta -s -fi $genome -bed ".$bed_output_directory.$title."-".$type."-genfam.bed -fo $fna_output_file -name";
+		system("bedtools getfasta -s -fi $genome -bed ".$bed_output_directory.$title."-".$type."-genfam.bed -fo $fna_output_file -name");
 	}
 	
 }
@@ -1931,174 +2431,223 @@ sub gff3_stat {
 		-file => $file,
 		-gff_version => 3
 	);
-	my (%stats, %mrna, %cds, %three, %five, %exon, %chr_length, $seq_obj);
+	my (%stats, %gene, %te_gene, %te, %pseudogene, %mrna, %cds, %three, %five, %exon, %chr_length, $seq_obj);
 	
 	while(my $feature = $gff1->next_feature ){
 		$chr_length{$feature->seq_id} = $feature->end;
 	}
 	$gff1->close; 
 	
-	my @ftypes = qw(gene transposable_element_gene mrna te cds exon five_prime_utr three_prime_utr intron intergenic genic);
+	my @ftypes = qw(gene transposable_element_gene mrna te pseudogene cds exon five_prime_utr three_prime_utr intron);
 	for my $t ( @ftypes ) {
 		$stats{$t} = Statistics::Descriptive::Full->new;
 	}
 	my $id;
-	my $mrna_id;
-	my %gene;
-	my %keep;	
-	while(my $feature = $gff->next_feature) { 
+	my $mrna_id;	
+	while(my $feature = $gff->next_feature) {
+		if ($feature->primary_tag() eq "gene") {
+			($id) = $feature->get_tag_values("ID");
+			push @{$gene{$feature->seq_id}{$id}},$feature;
+		}
 		if ($feature->primary_tag() eq "mRNA") {
 			($id) = $feature->get_tag_values("Parent");
 			($mrna_id) = $feature->get_tag_values("ID");
-			if (defined $gene{$id}){
-				next;
-			}
-			else {
-				$gene{$id} = 1;
-				$keep{$mrna_id}  = 1;
-				push @{$mrna{$feature->seq_id}{gene}},$feature;
-			}
+			push @{$mrna{$id}{$mrna_id}},$feature;
+		}		
+		if ($feature->primary_tag() eq "transposable_element_gene") {
+			($id) = $feature->get_tag_values("ID");
+			push @{$te_gene{$feature->seq_id}{$id}},$feature;
 		}
-		if ($feature->primary_tag =~ /transposable_element|repeat_region/) {	
-			($id) = $feature->get_tag_values("ID");		
-			if (defined $gene{$id}){
-				next;
-			}
-			else {
-				$gene{$id} = 1;
-				push @{$mrna{$feature->seq_id}{transposable_element}},$feature;
-			}
+		if ($feature->primary_tag =~ /transposable_element|repeat_region/) {
+			($id) = $feature->get_tag_values("ID");	
+			push @{$te{$feature->seq_id}{$id}},$feature;
 		}	
 		if ($feature->primary_tag() eq "CDS") {
 			my ($parent) = $feature->get_tag_values("Parent");
-			if (  $keep{$parent}){
-				push @{$cds{$parent}},$feature;
-			}
+			push @{$cds{$parent}},$feature;
 		}	
 		if ($feature->primary_tag() eq "three_prime_UTR") {
 			my ($parent) = $feature->get_tag_values("Parent");
-			if (  $keep{$parent}){
-				push @{$three{$parent}},$feature;
-			}
+			push @{$three{$parent}},$feature;
 		}	
 		if ($feature->primary_tag() eq "five_prime_UTR") {
 			my ($parent) = $feature->get_tag_values("Parent");
-			if (  $keep{$parent}){
-				push @{$five{$parent}},$feature;
-			}
+			push @{$five{$parent}},$feature;
 		}	
 		if ($feature->primary_tag() eq "exon") {
 			my ($parent) = $feature->get_tag_values("Parent");
-			if (  $keep{$parent}){
-				push @{$exon{$parent}},$feature;
-			}
+			push @{$exon{$parent}},$feature;
 		}	
+		if ($feature->primary_tag eq "pseudogene") {
+			($id) = $feature->get_tag_values("ID");				
+			push @{$pseudogene{$feature->seq_id}{$id}},$feature;
+		}
 	}
 	$gff->close;
-	open(OUT,">".$fna_output_directory."intergenic.txt");
+	open(OUT,">".$fna_output_directory."stat.txt");
 	my $genome = 0;
-	my $mrna_sum = 0;
+	my $gene_sum = 0;
 	my $te_sum  = 0;
+	my $te_gene_sum = 0;
+	my $pseudo_sum = 0;
 
-	print join("\t","Chr","Length (bp)","Num Gene","Num TE"),"\n";
+	print OUT "TABLE:\n";
+	print OUT join("\t","Chr","Length (bp)","Num Gene", "Num TE_gene", "Num pseudogene", "Num TE"),"\n";
 	foreach my $seq_id (sort {$a cmp $b} keys %chr_length){
 		my $length 	= $chr_length{$seq_id};
-		my @mrna 	= sort {$a->start <=> $b->start} @{$mrna{$seq_id}{gene}};
-		
-		my @mrna_te;
-		if (defined $mrna{$seq_id}{transposable_element}){
-			@mrna_te = sort {$a->start <=> $b->start} @{$mrna{$seq_id}{transposable_element}};
-		}
-		$genome	  += $length;
-		$mrna_sum += scalar(@mrna);
-		$te_sum   += scalar(@mrna_te);
 		my @gene;
-		push @gene , @mrna,@mrna_te; 
-		print join("\t",$seq_id,$chr_length{$seq_id},scalar(@mrna),scalar(@mrna_te),scalar(@gene)),"\n";
-		@gene = sort {$a->start <=> $b->start} @gene;
-		my $total = 0; 
-		my $lastfeature;
-		my $cpt = 0;
-		my $genic;
-		my $intergenic;
-		foreach my $feature (@gene) {
-			$cpt++;
-			my ($mrna_id) = $feature->get_tag_values("Name");
-			if (defined $cds{$mrna_id}){
-				foreach my $feature_cds (sort{$a->start <=> $b->start} @{$cds{$mrna_id}}) {
-					my $cds_length = abs($feature_cds->start - $feature_cds->end);
-					$stats{'cds'}->add_data($cds_length); 
-					$total++;
-				}
-			}
-			if (defined $five{$mrna_id}){
-				foreach my $feature_five (sort{$a->start <=> $b->start} @{$five{$mrna_id}}) {
-					my $length = abs($feature_five->start - $feature_five->end);
-					$stats{'five_prime_utr'}->add_data($length); 
-					$total++;
-				}
-			}
-			if (defined $three{$mrna_id}){
-				foreach my $feature_three (sort{$a->start <=> $b->start} @{$three{$mrna_id}}) {
-					my $length = abs($feature_three->start - $feature_three->end);
-					$stats{'three_prime_utr'}->add_data($length); 
-					$total++;
-				}
-			}
-			my $lastexon;
-			
-			if (defined $exon{$mrna_id}){
-				for my $exon ( sort { $a->start  <=>   $b->start  }  @{$exon{$mrna_id}} ) {
-					my $exonlen = abs($exon->start - $exon->end);
-					$stats{'exon'}->add_data($exonlen);
-					if( $lastexon ) {
-						my $intronlen = abs($exon->start - ($lastexon->end)); 
-						$stats{'intron'}->add_data($intronlen);
-					}
-					$lastexon = $exon;
-				}
-			}
-			if ($lastfeature) {
-				$intergenic = $feature->start - $lastfeature->end;
-				if ($intergenic > 0) {
-					$stats{'intergenic'}->add_data($intergenic);  
-					print OUT join("\t",$cpt,"Inter",$seq_id,$lastfeature->end,$feature->start,$intergenic),"\n";  
-				} 
-				$genic = abs($feature->start - $feature->end);
-				if ($feature->primary_tag() eq "mRNA") {
-					$stats{'gene'}->add_data($genic); 
-				}
-				else {
-					$stats{'te'}->add_data($genic); 
-				}
-				$stats{'genic'}->add_data($genic);  
-				print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n"; 
-				$lastfeature = $feature;
-			}
-			else {
-				$intergenic = $feature->start;
-				$stats{'intergenic'}->add_data($intergenic);   
-				$genic = abs($feature->start - $feature->end);
-				print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n";
-				$stats{'genic'}->add_data($genic);  
-				if ($feature->primary_tag() eq "mRNA") {
-					$stats{'gene'}->add_data($genic); 
-				}
-				else {
-					$stats{'te'}->add_data($genic); 
-				}
-				$lastfeature = $feature;
-			}
+		if (defined $gene{$seq_id}){
+			@gene = keys%{$gene{$seq_id}};
 		}
-		$intergenic = abs($length - $gene[-1]->end ) ;
-		$stats{'intergenic'}->add_data($intergenic);  
-		print OUT join("\t",$cpt,"Intergenic",$seq_id,$gene[-1]->end +1,$length, $mrna_id),"\n\n";
- 
+		
+		my @gene_te;
+		if (defined $te_gene{$seq_id}){
+			@gene_te = keys%{$te_gene{$seq_id}};
+		}
+		
+		my @te;
+		if (defined $te{$seq_id}){
+			@te = keys%{$te{$seq_id}};
+		}
+		
+		my @pseudo;
+		if (defined $pseudogene{$seq_id}){
+			@pseudo = keys%{$pseudogene{$seq_id}};
+		}
+		
+		$genome	  += $length;
+		$gene_sum += scalar(@gene);
+		$te_sum   += scalar(@te);
+		$te_gene_sum += scalar(@gene_te);
+		$pseudo_sum += scalar(@pseudo);
+		
+		push @gene,@gene_te,@te,@pseudo; 
+		print OUT join("\t",$seq_id,$chr_length{$seq_id},scalar(@gene),scalar(@gene_te),scalar(@pseudo),scalar(@te)),"\n";
+		
+		my $total = 0; 
+		#my $lastfeature;
+		#my $cpt = 0;
+		#my $genic;
+		#my $intergenic;
+		foreach my $gene_id (keys%{$gene{$seq_id}}){			
+			if (defined $gene{$seq_id}{$gene_id}){
+				foreach my $feature_gene (sort{$a->start <=> $b->start} @{$gene{$seq_id}{$gene_id}}) {
+					my $gene_length = abs($feature_gene->start - $feature_gene->end);
+					$stats{'gene'}->add_data($gene_length); 
+					$total++;
+				}
+			}	
+					
+			foreach my $mrna_id (keys%{$mrna{$gene_id}}){
+				#$cpt++;				
+				if (defined $cds{$mrna_id}){
+					foreach my $feature_cds (sort{$a->start <=> $b->start} @{$cds{$mrna_id}}) {
+						my $cds_length = abs($feature_cds->start - $feature_cds->end);
+						$stats{'cds'}->add_data($cds_length); 
+						$total++;
+					}
+				}
+				
+				if (defined $five{$mrna_id}){
+					foreach my $feature_five (sort{$a->start <=> $b->start} @{$five{$mrna_id}}) {
+						my $length = abs($feature_five->start - $feature_five->end);
+						$stats{'five_prime_utr'}->add_data($length); 
+						$total++;
+					}
+				}
+				
+				if (defined $three{$mrna_id}){
+					foreach my $feature_three (sort{$a->start <=> $b->start} @{$three{$mrna_id}}) {
+						my $length = abs($feature_three->start - $feature_three->end);
+						$stats{'three_prime_utr'}->add_data($length); 
+						$total++;
+					}
+				}
+				my $lastexon;
+		
+				if (defined $exon{$mrna_id}){
+					for my $exon ( sort { $a->start  <=>   $b->start  }  @{$exon{$mrna_id}} ) {
+						my $exonlen = abs($exon->start - $exon->end);
+						$stats{'exon'}->add_data($exonlen);
+						if( $lastexon ) {
+							my $intronlen = abs($exon->start - ($lastexon->end)); 
+							$stats{'intron'}->add_data($intronlen);
+						}
+						$lastexon = $exon;
+					}
+				}
+			}
+			# if ($lastfeature) {
+# 				$intergenic = $feature->start - $lastfeature->end;
+# 				if ($intergenic > 0) {
+# 					$stats{'intergenic'}->add_data($intergenic);  
+# 					#print OUT join("\t",$cpt,"Inter",$seq_id,$lastfeature->end,$feature->start,$intergenic),"\n";  
+# 				} 
+# 				$genic = abs($feature->start - $feature->end);
+# 				if ($feature->primary_tag() eq "mRNA") {
+# 					$stats{'gene'}->add_data($genic); 
+# 				}
+# 				else {
+# 					$stats{'transposable_element_gene'}->add_data($genic);
+# 					$stats{'te'}->add_data($genic); 
+# 					$stats{'pseudogene'}->add_data($genic);
+# 				}
+# 				$stats{'genic'}->add_data($genic);  
+# 				#print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n"; 
+# 				$lastfeature = $feature;
+# 			}
+# 			else {
+# 				$intergenic = $feature->start;
+# 				$stats{'intergenic'}->add_data($intergenic);   
+# 				$genic = abs($feature->start - $feature->end);
+# 				print OUT join("\t",$cpt,$feature->primary_tag,$seq_id,$feature->start,$feature->end,$genic),"\n";
+# 				$stats{'genic'}->add_data($genic);  
+# 				if ($feature->primary_tag() eq "mRNA") {
+# 					$stats{'gene'}->add_data($genic); 
+# 				}
+# 				else {
+# 					$stats{'transposable_element_gene'}->add_data($genic);
+# 					$stats{'te'}->add_data($genic); 
+# 					$stats{'pseudogene'}->add_data($genic);
+# 				}
+# 				$lastfeature = $feature;
+# 			}
+		}
+		foreach my $te_gene_id (keys%{$te_gene{$seq_id}}){
+			if (defined $te_gene{$seq_id}{$te_gene_id}){
+				foreach my $feature_te_gene (sort{$a->start <=> $b->start} @{$te_gene{$seq_id}{$te_gene_id}}) {
+					my $te_gene_length = abs($feature_te_gene->start - $feature_te_gene->end);
+					$stats{'transposable_element_gene'}->add_data($te_gene_length); 
+					$total++;
+				}
+			}		
+		}
+		foreach my $te_id (keys%{$te{$seq_id}}){
+			if (defined $te{$seq_id}{$te_id}){
+				foreach my $feature_te (sort{$a->start <=> $b->start} @{$te{$seq_id}{$te_id}}) {
+					my $te_length = abs($feature_te->start - $feature_te->end);
+					$stats{'te'}->add_data($te_length); 
+					$total++;
+				}
+			}		
+		}
+		foreach my $pseudo_id (keys%{$pseudogene{$seq_id}}){
+			if (defined $pseudogene{$seq_id}{$pseudo_id}){
+				foreach my $feature_pseudo (sort{$a->start <=> $b->start} @{$pseudogene{$seq_id}{$pseudo_id}}) {
+					my $pseudo_length = abs($feature_pseudo->start - $feature_pseudo->end);
+					$stats{'pseudogene'}->add_data($pseudo_length); 
+					$total++;
+				}
+			}		
+		}
+		#$intergenic = abs($length - $gene[-1]->end ) ;
+		#$stats{'intergenic'}->add_data($intergenic);  
+		#print OUT join("\t",$cpt,"Intergenic",$seq_id,$gene[-1]->end +1,$length, $mrna_id),"\n\n";
 	}
-	print join("\t","All",$genome,$mrna_sum,$te_sum),"\n";
-	for my $t ( qw (gene te intron exon cds five_prime_utr three_prime_utr intergenic genic ) ) {
+	print OUT join("\t","All",$genome,$gene_sum,$te_gene_sum,$pseudo_sum,$te_sum),"\n";
+	for my $t ( qw (gene transposable_element_gene te pseudogene cds exon five_prime_utr three_prime_utr intron) ) {
 		my $percent = 100 * $stats{$t}->sum / $genome;
-		print join("\t",$t, $stats{$t}->count,$stats{$t}->sum,   $stats{$t}->mean,$percent),"\n";
+		print OUT join("\t",$t,$stats{$t}->count,$stats{$t}->sum,$stats{$t}->mean,$percent),"\n";
    
 	}
 }
