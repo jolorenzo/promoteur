@@ -17,20 +17,25 @@ for fasta in fasta_sequences:
 
 output_fna=sys.argv[2]
 output_bed=sys.argv[3]
-type=sys.argv[4]
-flank=sys.argv[5]
-begin=sys.argv[6]
-end=sys.argv[7]
+flank=sys.argv[4]
+begin=sys.argv[5]
+end=sys.argv[6]
 
 for i in list1:
 	toto = i.split('_')
-	spec_codes.append(toto[1])
+	chaine = toto[len(toto)-1]
+	expression = r"[A-Z]{5}"
+	if re.match(expression, chaine) is not None:
+		spec_codes.append(toto[len(toto)-1])
+	else:
+		print ("wrong id format")
 
 myset = set(spec_codes)
-print myset
+print(myset)
 
 	
 path_file=open('/usr/local/bioinfo/galaxy_dev/galaxy_dist/tool-data/gff2fasta.loc','r')
+#path_file=open('/homedir/lorenzo/gff2fasta.loc','r')
 spec=path_file.readlines()
 path_file.close()
 bases_gff=[]
@@ -50,6 +55,14 @@ os.system("mkdir "+tmpfoldname)
 os.system("mkdir "+tmpfoldname+"/logs")
 os.system("mkdir "+tmpfoldname+"/outputs")
 
+#os.chdir(tmpfoldname+"/outputs")
+#print os.getcwd()
+#os.chdir("../../")
+
+# dirlist = os.listdir(tmpfoldname+"/outputs")
+# 
+# from pprint import pprint
+# pprint(dirlist)
 
 i=1
 for path in bases_gff:
@@ -59,19 +72,57 @@ for path in bases_gff:
 	
 j=1	
 for path in bases_fna:
-	os.system("ln -s "+ path +" "+tmpfoldname+"/fna"+str(i))
+	os.system("ln -s "+ path +" "+tmpfoldname+"/fna"+str(j))
 	#print path
 	j=j+1
 
 
-jobarray="#!/bin/bash\n#$ -N gff2fnaclust\n#$ -wd "+tmpfoldname+"/\n#$ -e "+tmpfoldname+"/logs/ \n#$ -o "+tmpfoldname+"/logs/\n#$ -q bioinfo.q\n#$ -t 1-"+str(i-1)+"\n#$ -tc "+str(i-1)+"\n#$ -S /bin/bash \n#$ -b y\n#$ -V\nperl /usr/local/bioinfo/galaxy/galaxy_dist/tools/gff2fna/multi_gff2fna.pl ./gff${SGE_TASK_ID} ./fna${SGE_TASK_ID} "+output_fna+" "+output_bed+" "+input_file+" "+type+" "+flank+" "+begin+" "+end
+#marmadais:
+jobarray="#!/bin/bash\n\n#$ -N gff2fnaclust\n#$ -wd "+tmpfoldname+"/\n#$ -e "+tmpfoldname+"/logs/\n#$ -o "+tmpfoldname+"/logs/\n#$ -q bioinfo.q\n#$ -t 1-"+str(i-1)+"\n#$ -tc "+str(i-1)+"\n#$ -S /bin/bash\n#$ -b y\n#$ -V\n\nperl /usr/local/bioinfo/galaxy_dev/galaxy_dist/tools/gff2fna/multi_gff2fna.pl "+tmpfoldname+"/gff${SGE_TASK_ID} "+tmpfoldname+"/fna${SGE_TASK_ID} "+tmpfoldname+"/outputs/output_fna${SGE_TASK_ID} "+tmpfoldname+"/outputs/output_bed${SGE_TASK_ID} "+input_file+" "+flank+" -begin="+begin+" -end="+end+"\n"
+
+#print (jobarray)
+
+#cc2-login:
+#jobarray="#!/bin/bash\n\n#$ -N gff2fnaclust\n#$ -wd "+tmpfoldname+"/\n#$ -e "+tmpfoldname+"/logs/\n#$ -o "+tmpfoldname+"/logs/\n#$ -q normal.q\n#$ -t 1-"+str(i-1)+"\n#$ -tc "+str(i-1)+"\n#$ -S /bin/bash\n#$ -b y\n#$ -V\n#$ -l hostname=cc2-n12\n\nperl /homedir/lorenzo/promoteur/multi_gff2fna.pl "+tmpfoldname+"/gff${SGE_TASK_ID} "+tmpfoldname+"/fna${SGE_TASK_ID} "+tmpfoldname+"/outputs/output_fna${SGE_TASK_ID} "+tmpfoldname+"/outputs/output_bed${SGE_TASK_ID} "+input_file+" "+flank+" -begin="+begin+" -end="+end+"\n"
+
 array_file=open(tmpfoldname+'/jobs.sge','w')
 array_file.write(jobarray)
 array_file.close()
 
 
-os.system("qsub -sync y "+tmpfoldname+"/jobs.sge")
-os.chdir(tmpfoldname)
+# dirlist = os.listdir(tmpfoldname)
+# 
+# from pprint import pprint
+# pprint(dirlist)
 
-os.chdir("../")
-os.system("rm -rf "+tmpfoldname)
+os.system("chmod -R 777 "+tmpfoldname)
+
+os.system("qsub -sync y "+tmpfoldname+"/jobs.sge")
+#os.chdir(tmpfoldname)
+
+
+k=1
+fo = open(output_fna, "w")
+for path in bases_fna:
+	file_fna=tmpfoldname+"/outputs/output_fna"+str(k)
+	with open(file_fna, 'r') as readfile:
+		for line in readfile:
+			fo.seek(0, 2)
+			fo.writelines( line )
+	k=k+1
+
+l=1
+fo1 = open(output_bed, "w")
+for path in bases_gff:
+	file_bed=tmpfoldname+"/outputs/output_bed"+str(l)
+	with open(file_bed, 'r') as readfile:
+		for line in readfile:
+			fo1.seek(0, 2)
+			fo1.writelines( line )
+	l=l+1
+
+fo.close()
+fo1.close()
+
+#os.chdir("../")
+#os.system("rm -rf "+tmpfoldname)
