@@ -8,7 +8,7 @@
 
 =head1 SYNOPSIS
 
-    qsub -q bioinfo.q -b yes -V -N format1 perl gff3fna2gff32bed2fasta.pl <gff3_input_file> <genome_sequence_file> <fna_output_file> -bed=all|gene|mRNA|polypeptide|... -type=gene|mRNA|polypeptide|... -begin=0|-x|+x -end=0|-x|+x
+    qsub -q bioinfo.q -b yes -V -N format1 perl gff3fna2gff32bed2fasta.pl <gff3_input_file> <genome_sequence_file> <fna_output_file> -bed=all|gene|mRNA|polypeptide|... -begin=0|-x|+x -end=0|-x|+x
 
 =head1 REQUIRES
 
@@ -42,6 +42,7 @@ use Statistics::Descriptive;
 use Bio::DB::SeqFeature;
 use Env qw(HOME);
 use Data::Dumper;
+use List::MoreUtils qw(any);
 
 # Script global constants
 ##########################
@@ -107,13 +108,46 @@ my $bed_output_directory= $1 if $ARGV[3] =~ /(.*\/)[^\/]*\.?.*/i;
 my $bed_output_file = $ARGV[3];
 
 my $multi_fna=$ARGV[4];
+
+my $data = read_file($multi_fna);
+$data =~ s/\r/\n/g;
+write_file($multi_fna, $data);
+ 
+sub read_file {
+    my ($filename) = @_;
+ 
+    open my $in, '<:encoding(UTF-8)', $filename or die "Could not open '$filename' for reading $!";
+    local $/ = undef;
+    my $all = <$in>;
+    close $in;
+ 
+    return $all;
+}
+ 
+sub write_file {
+    my ($filename, $content) = @_;
+ 
+    open my $out, '>:encoding(UTF-8)', $filename or die "Could not open '$filename' for writing $!";;
+    print $out $content;
+    close $out;
+ 
+    return;
+}
+
+
 my $reader=new Bio::SeqIO(-format=>'fasta',-file=>$multi_fna);
+
 my @list_gene;
-while (my $seqRec=$reader->next_seq){
+while (my $seqRec=$reader->next_seq()){
 	my $id = $seqRec->id;
-	if (($id =~ /^(.+)\.\d+_[Aa-Zz]{5}/i)){
+	if ($id =~ /(.+\d+)[A-Z](\d+.*)_[A-Z]{5}/i){
+		my $gene = $1."g".$2;
+		#print $gene."\n";
+		push (@list_gene, $gene);		
+	}
+	elsif ($id =~ /(.+)_[A-Z]{5}/i){
 		my $gene = $1;
-		push @list_gene, $gene;		
+		push (@list_gene, $gene);
 	}
 }
 
@@ -203,7 +237,10 @@ B<Example>:
 #+++        confess "usage: subName();"; #+++
 #+++    }
 #+++}
-my ($type, $flank, $begin, $end, $bed);
+my $flank = $ARGV[5];
+my $begin;
+my $end;
+
 sub flanking_region(){
 
 	my $new_file = $gff3_file;
@@ -264,45 +301,58 @@ sub flanking_region(){
 	
 	open(FILE, ">$outfile") or die "Could not open file '$outfile' $!";
 	
+	chmod 0777, $outfile;
+	
 	foreach my $seq_id (sort {$a cmp $b} keys%gene){
 		foreach my $gene (sort {$a <=> $b} keys%{$gene{$seq_id}}){
 			
 			my ($feature) = $gene{$seq_id}{$gene};
 			my $score = ".";
 			my $strand;
+			my $element;
 			
 			if($feature->strand=~/-/){
 				$strand='-';
 			}else{
 				$strand='+';
 			}
-			my $element = $feature->get_tag_values("ID");
+			if ($feature->has_tag("Name")){
+				$element = $feature->{_gsf_tag_hash}->{Name}->[0];
+			}else{
+				$element = $feature->{_gsf_tag_hash}->{ID}->[0];
+			}
 			
-			#Si region 5’ et brin + ou région 3’ et brin - et non transposable_element_gene
-			if (($element ~~ @list_gene ) && ($feature->strand=~/^1/) && ($flank =~ /prom/) && ($feature->primary_tag !~/transposable_element_gene/) 
-			|| ($element ~~ @list_gene ) && ($feature->strand=~/^-1/) && ($flank =~ /term/) && ($feature->primary_tag !~/transposable_element_gene/)){
-				my ($feature_cds);
-				my ($size);	
-				my ($mrna_id);
-				my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");
+			my @count = grep {/$element/i} @list_gene;
+			my $count = @count;
+			#for my $str (@count) {
+       		#	print "$str\n";
+   			#}
 			
-				my @keys = keys%{$mRNA{$id}};	
-				$mrna_id = $keys[0];
-				if (defined $mrna_id){
-					if (defined $CDS{$mrna_id}[0]){
-						$size = scalar(@{$CDS{$mrna_id}});
-						if ($feature->strand =~/^1/){
-							$feature_cds = $CDS{$mrna_id}[0];
-						}
-						else{
-							$feature_cds = $CDS{$mrna_id}[$size-1]
-						}						
-					}					
-				}
+			if ($count >=1) {
+				#Si region 5’ et brin + ou région 3’ et brin - et non transposable_element_gene
+				if (($feature->strand=~/^1/) && ($flank =~ /prom/) && ($feature->primary_tag !~/transposable_element_gene/)
+				|| ($feature->strand=~/^-1/) && ($flank =~ /term/) && ($feature->primary_tag !~/transposable_element_gene/)){
+					my ($feature_cds);
+					my ($size);	
+					my ($mrna_id);
+					my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");
+			
+					my @keys = keys%{$mRNA{$id}};	
+					$mrna_id = $keys[0];
+					if (defined $mrna_id){
+						if (defined $CDS{$mrna_id}[0]){
+							$size = scalar(@{$CDS{$mrna_id}});
+							if ($feature->strand =~/^1/){
+								$feature_cds = $CDS{$mrna_id}[0];
+							}
+							else{
+								$feature_cds = $CDS{$mrna_id}[$size-1]
+							}						
+						}					
+					}
 				
-				#Cas du premier gène du chromosome
-				if (not exists $gene{$seq_id}{$gene-1}){
-					if ($type =~ /CDS/i){
+					#Cas du premier gène du chromosome
+					if (not exists $gene{$seq_id}{$gene-1}){
 						if (defined $feature_cds){							
 							if($feature_cds->start+$begin > 0){						
 								print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,$score,$strand)."\n";								
@@ -311,10 +361,8 @@ sub flanking_region(){
 								print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-$feature_cds->start,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,$score,$strand)."\n";
 							}
 						}
-					}
-				}				
-				else{
-					if ($type =~ /CDS/i){
+					}				
+					else{
 						if (defined $feature_cds){					
 							#Cas du gène dans un autre gène (intron)
 							if ($gene{$seq_id}{$gene-1}->start < $feature_cds->start){							
@@ -415,7 +463,7 @@ sub flanking_region(){
 										if (defined $mrna_id){
 											if (defined $CDS{$mrna_id}[0]){
 												my $size = scalar(@{$CDS{$mrna_id}});	
-								
+							
 												#Cas de x gènes identique en start et région non codante entre le gene -x et notre gène
 												if ($CDS{$mrna_id}[$size-1]->end < $feature_cds->start+$begin){									
 													print FILE join("\t",$feature_cds->seq_id,$feature_cds->start-1+$begin,$feature_cds->start+$end,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,$score,$strand)."\n";
@@ -474,30 +522,28 @@ sub flanking_region(){
 						}				
 					}
 				}
-			}
-			#Si région 5’ et brin - ou région 3’ et brin + et non transposable_element_gene
-			elsif (($element ~~ @list_gene) && ($feature->strand=~/^-1/) && ($flank =~/prom/) && ($feature->primary_tag !~/transposable_element_gene/)
-			|| ($element ~~ @list_gene) && ($feature->strand=~/^1/) && ($flank =~/term/) && ($feature->primary_tag !~/transposable_element_gene/)){				
-				my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");					
-				my (@keys) = keys%{$mRNA{$id}};	
-				my ($mrna_id) = $keys[0];
-				my ($feature_cds);
-				if (defined $mrna_id){
-					if (defined $CDS{$mrna_id}){
-						if (defined $CDS{$mrna_id}[0]){
-							my ($size) = scalar(@{$CDS{$mrna_id}});								
-							if ($feature->strand =~/^1/){
-								$feature_cds = $CDS{$mrna_id}[0];
-							}
-							else{
-								$feature_cds = $CDS{$mrna_id}[$size-1]
+				#Si région 5’ et brin - ou région 3’ et brin + et non transposable_element_gene
+				elsif (($flank =~/prom/) && ($feature->primary_tag !~/transposable_element_gene/)
+				|| ($feature->strand=~/^1/) && ($flank =~/term/) && ($feature->primary_tag !~/transposable_element_gene/)){				
+					my ($id) = $gene{$seq_id}{$gene}->get_tag_values("ID");					
+					my (@keys) = keys%{$mRNA{$id}};	
+					my ($mrna_id) = $keys[0];
+					my ($feature_cds);
+					if (defined $mrna_id){
+						if (defined $CDS{$mrna_id}){
+							if (defined $CDS{$mrna_id}[0]){
+								my ($size) = scalar(@{$CDS{$mrna_id}});								
+								if ($feature->strand =~/^1/){
+									$feature_cds = $CDS{$mrna_id}[0];
+								}
+								else{
+									$feature_cds = $CDS{$mrna_id}[$size-1]
+								}
 							}
 						}
 					}
-				}
-				#Cas fin chromosome
-				if(not exists $gene{$seq_id}{$gene+1}){					
-					if ($type =~ /CDS/i){	
+					#Cas fin chromosome
+					if(not exists $gene{$seq_id}{$gene+1}){					
 						if (defined $feature_cds){				
 							if ($gene{$seq_id}{$gene-1}->end <= $feature_cds->end) {
 								if ($length{$seq_id} > $feature_cds->end-$begin){
@@ -537,7 +583,7 @@ sub flanking_region(){
 												while (($feature_cds->end < $CDS{$mrna_id}[$cpt]->start) && ($cpt > 0 )){
 													$cpt -= 1;
 												}
-									
+								
 												if ($CDS{$mrna_id}[$cpt+1]->start > $feature_cds->end-$begin){
 													print FILE join("\t",$feature_cds->seq_id,$feature_cds->end-$end-1,$feature_cds->end-$begin,$feature->{_gsf_tag_hash}->{ID}->[0]."_".$title3,$score,$strand)."\n";
 												}
@@ -562,11 +608,9 @@ sub flanking_region(){
 							}
 						}
 					}
-				}
-				else{
-					#Cas début chromosome					
-					if (not exists $gene{$seq_id}{$gene-1}){						
-						if ($type =~ /CDS/i){
+					else{
+						#Cas début chromosome					
+						if (not exists $gene{$seq_id}{$gene-1}){						
 							if (defined $feature_cds){
 								#
 								if(($gene{$seq_id}{$gene+1}->start <= $feature_cds->end) && ($gene{$seq_id}{$gene+1}->end > $feature_cds->end)){
@@ -652,9 +696,7 @@ sub flanking_region(){
 								}
 							}
 						}
-					}
-					else{						
-						if ($type =~ /CDS/i){
+						else{						
 							if (defined $feature_cds){
 								#cas d'un gène à l'intérieur d'un autre -1
 								if($gene{$seq_id}{$gene-1}->end > $feature_cds->end){
@@ -881,10 +923,10 @@ sub flanking_region(){
 									}
 								}
 							}
-						}						
+						}
 					}
-				}
-			}				
+				}				
+			}
 		}
 	}
 	close FILE;
@@ -962,9 +1004,6 @@ my ($man, $help, $debug);
 GetOptions("help|?"   => \$help,
            "man"      => \$man,
            "debug"    => \$debug, # a flag
-           "bed=s"      => \$bed,
-           "type|t=s"   => \$type,
-           "flank=s"   => \$flank,
            "begin=i" => \$begin,
            "end=i" => \$end)
 #           "length=i" => \$length, # numeric
@@ -974,13 +1013,11 @@ if ($help) {pod2usage(0);}
 if ($man) {pod2usage(-verbose => 2);}
 
 
-print "Looking for files in $gff3_file\n";
-my @files = $gff3_file;
-print "Found " . @files . " files to process...\n";
+#print "Looking for files in $gff3_file\n";
+#my @files = $gff3_file;
+#print "Found " . @files . " files to process...\n";
 
-if (defined($type) && defined($begin) && defined($end) && defined($flank)){
-	flanking_region();
-}
+flanking_region();
 
 # CODE END
 ###########
